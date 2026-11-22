@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Classroom Quiz</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/quiz.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <span class="brand">Classroom Quiz</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="loading" class="loading"><span class="spinner"></span> Loading…</div>
+    <div id="notice" class="notice" hidden></div>
+
+    <!-- Shown when this browser has an unfinished quiz -->
+    <section id="resumeCard" class="card" hidden>
+      <h1>Continue your quiz</h1>
+      <p id="resumeText"></p>
+      <a id="resumeLink" class="btn btn-primary btn-block" href="quiz.html">Continue quiz</a>
+      <p class="small muted center" style="margin-top:16px">
+        Not you? <button type="button" id="notMeBtn" class="btn-link">Start as a different student</button>
+      </p>
+    </section>
+
+    <section id="startCard" class="card" hidden>
+      <h1>Start a quiz</h1>
+      <p class="muted">Fill in your details carefully. You cannot change them after the quiz starts.</p>
+
+      <form id="studentForm" novalidate>
+        <div class="field">
+          <label for="fullName">Full name</label>
+          <input type="text" id="fullName" autocomplete="name" maxlength="80" placeholder="e.g. Ram Sharma" required>
+          <div class="error-text" data-error-for="fullName" hidden></div>
+        </div>
+
+        <div class="field">
+          <label for="rollNo">Roll number</label>
+          <input type="text" id="rollNo" inputmode="numeric" maxlength="6" placeholder="e.g. 12" required>
+          <div class="error-text" data-error-for="rollNo" hidden></div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="grade">Grade</label>
+            <select id="grade" required></select>
+            <div class="error-text" data-error-for="grade" hidden></div>
+          </div>
+          <div class="field">
+            <label for="section">Section</label>
+            <select id="section" required></select>
+            <div class="error-text" data-error-for="section" hidden></div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="quizSelect">Quiz</label>
+          <select id="quizSelect" required></select>
+          <div class="error-text" data-error-for="quizSelect" hidden></div>
+        </div>
+
+        <button type="submit" id="startBtn" class="btn btn-primary btn-block">Start quiz</button>
+      </form>
+    </section>
+
+    <!-- Confirm identity before starting -->
+    <div id="confirmModal" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+        <h2 id="confirmTitle">Are these details correct?</h2>
+        <dl class="details-list" id="confirmDetails"></dl>
+        <p class="small muted">The quiz will open. Fullscreen mode will be turned on if your device allows it.</p>
+        <div class="actions">
+          <button type="button" class="btn" id="confirmBack">Go back</button>
+          <button type="button" class="btn btn-primary" id="confirmStart">Yes, start quiz</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="small muted center" style="margin-top:32px"><a href="dashboard.html">Teacher login</a></p>
+  </main>
+
+  <script type="module" src="js/student.js"></script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+rules_version = '2';
+
+// Firestore Security Rules for the Classroom Quiz website.
+//
+// Collections
+//   teachers/{uid}        authorised teacher accounts (created by hand in the console)
+//   settings/school       grades, sections, pass mark, class sizes
+//   quizzes/{quizId}      public questions + options, NO correct answers
+//   answerKeys/{quizId}   correct answers (teacher only)
+//   attempts/{attemptId}  one per student per quiz; written by the student
+//   results/{attemptId}   marks calculated by the teacher dashboard (teacher only)
+//
+// Students sign in anonymously. The teacher signs in with email/password and
+// must have a document at teachers/{their uid}.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isTeacher() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    }
+
+    // ---------------------------------------------------------------- teachers
+    // A signed-in user may check whether they themselves are a teacher.
+    // Nobody can create teacher documents from the website.
+    match /teachers/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    // ---------------------------------------------------------------- settings
+    match /settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isTeacher();
+    }
+
+    // ----------------------------------------------------------------- quizzes
+    // Students may only read quizzes the teacher has made available.
+    // Student list queries must include where("active", "==", true).
+    match /quizzes/{quizId} {
+      allow get: if isTeacher() || (signedIn() && resource.data.active == true);
+      allow list: if isTeacher() || (signedIn() && resource.data.active == true);
+      allow write: if isTeacher();
+    }
+
+    // -------------------------------------------------------------- answerKeys
+    match /answerKeys/{quizId} {
+      allow read, write: if isTeacher();
+    }
+
+    // ---------------------------------------------------------------- attempts
+    match /attempts/{attemptId} {
+      // A student may read only their own attempt. Reading an id that does not
+      // exist yet is allowed so the quiz can check for duplicates before
+      // starting. Only the teacher can list attempts.
+      allow get: if isTeacher()
+        || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
+      allow list: if isTeacher();
+
+      allow create: if signedIn() && validNewAttempt(attemptId);
+
+      // The owner may save progress and submit once. After submission the
+      // attempt is locked: nobody can change it, only the teacher can delete
+      // it (to allow a retake).
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && resource.data.status == 'in_progress'
+        && validAttemptUpdate();
+
+      allow delete: if isTeacher();
+    }
+
+    // ----------------------------------------------------------------- results
+    match /results/{attemptId} {
+      allow read, write: if isTeacher();
+    }
+
+    // ---------------------------------------------------------------- helpers
+    function validNewAttempt(attemptId) {
+      let d = request.resource.data;
+      let quiz = get(/databases/$(database)/documents/quizzes/$(d.quizId)).data;
+      return d.keys().hasOnly(['uid', 'quizId', 'quizTitle', 'studentName', 'nameLower',
+          'rollNo', 'grade', 'section', 'status', 'questionCount', 'order', 'optionOrder',
+          'answers', 'answeredCount', 'currentIndex', 'focusLossCount',
+          'fullscreenExitCount', 'events', 'startedAt', 'lastSavedAt', 'submittedAt'])
+        && d.keys().hasAll(['uid', 'quizId', 'quizTitle', 'studentName', 'nameLower',
+          'rollNo', 'grade', 'section', 'status', 'questionCount', 'order', 'optionOrder',
+          'answers', 'answeredCount', 'currentIndex', 'focusLossCount',
+          'fullscreenExitCount', 'events', 'startedAt', 'lastSavedAt', 'submittedAt'])
+        && d.uid == request.auth.uid
+        && d.status == 'in_progress'
+        && d.studentName is string && d.studentName.size() >= 2 && d.studentName.size() <= 80
+        && d.nameLower == d.studentName.lower()
+        && d.rollNo is string && d.rollNo.matches('^(0|[1-9][0-9]{0,5})$')
+        && d.grade is string && d.grade.matches('^[A-Za-z0-9]{1,10}$')
+        && d.section is string && d.section.matches('^[A-Za-z0-9]{1,10}$')
+        && attemptId == d.quizId + '_' + d.grade + '_' + d.section + '_' + d.rollNo
+        && quiz.active == true
+        && d.quizTitle == quiz.title
+        && d.questionCount == quiz.questionCount
+        && d.order is list && d.order.size() == quiz.questionCount
+        && d.optionOrder is map && d.optionOrder.size() == quiz.questionCount
+        && d.answers is map && d.answers.size() == 0
+        && d.answeredCount == 0 && d.currentIndex == 0
+        && d.focusLossCount == 0 && d.fullscreenExitCount == 0
+        && d.events is list && d.events.size() == 0
+        && d.startedAt == request.time
+        && d.lastSavedAt == request.time
+        && d.submittedAt == null;
+    }
+
+    function validAttemptUpdate() {
+      let d = request.resource.data;
+      let old = resource.data;
+      return d.diff(old).affectedKeys().hasOnly(['answers', 'answeredCount', 'currentIndex',
+          'focusLossCount', 'fullscreenExitCount', 'events', 'lastSavedAt', 'status',
+          'submittedAt'])
+        && d.answers is map
+        && d.answers.keys().hasOnly(old.order)
+        && d.answeredCount is int && d.answeredCount >= 0 && d.answeredCount <= old.questionCount
+        && d.currentIndex is int && d.currentIndex >= 0 && d.currentIndex < old.questionCount
+        // warning counters can only go up
+        && d.focusLossCount is int && d.focusLossCount >= old.focusLossCount
+        && d.fullscreenExitCount is int && d.fullscreenExitCount >= old.fullscreenExitCount
+        && d.events is list && d.events.size() <= 200
+        && d.lastSavedAt == request.time
+        && ((d.status == 'in_progress' && d.submittedAt == null)
+            || (d.status == 'submitted' && d.submittedAt == request.time));
+    }
+  }
+}

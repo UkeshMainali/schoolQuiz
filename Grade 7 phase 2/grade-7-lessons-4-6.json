@@ -1,0 +1,752 @@
+{
+  "schemaVersion": "1.0",
+  "grade": 7,
+  "title": "Grade 7 Lessons 4 6",
+  "description": "Grade 7 multiple-choice question bank. Each question has four options and one correct answer.",
+  "totalQuestions": 29,
+  "lessons": [
+    {
+      "lessonId": "lesson-4",
+      "title": "Cybercrime",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "What is the main goal of a phishing attack on internet users?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To improve a computer's performance"
+            },
+            {
+              "id": "b",
+              "text": "To create a backup of personal files"
+            },
+            {
+              "id": "c",
+              "text": "To block all advertisements"
+            },
+            {
+              "id": "d",
+              "text": "To trick people into revealing sensitive information or clicking harmful links"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q02",
+          "question": "Which term describes software installed without a victim's knowledge to harm a device?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Malware"
+            },
+            {
+              "id": "b",
+              "text": "Spreadsheet"
+            },
+            {
+              "id": "c",
+              "text": "Firewall"
+            },
+            {
+              "id": "d",
+              "text": "Web browser"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q03",
+          "question": "Why do hackers steal someone's identity online?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To make the person's internet faster"
+            },
+            {
+              "id": "b",
+              "text": "To impersonate the person, access accounts, commit fraud, or misuse personal information"
+            },
+            {
+              "id": "c",
+              "text": "To improve the person's online profile"
+            },
+            {
+              "id": "d",
+              "text": "To help the person remember passwords"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q04",
+          "question": "What does a DDoS attack mainly do to a website or network?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "It makes the website's design more attractive"
+            },
+            {
+              "id": "b",
+              "text": "It creates a backup of the website"
+            },
+            {
+              "id": "c",
+              "text": "It overwhelms the service with traffic from many devices so legitimate users cannot access it"
+            },
+            {
+              "id": "d",
+              "text": "It safely removes viruses from the network"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q05",
+          "question": "You receive an email urging you to click a link to verify your bank account immediately. What should you do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Click the link quickly"
+            },
+            {
+              "id": "b",
+              "text": "Reply with your password"
+            },
+            {
+              "id": "c",
+              "text": "Forward the email to all your friends"
+            },
+            {
+              "id": "d",
+              "text": "Do not click the link; contact the bank through its official website or phone number"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q06",
+          "question": "Imagine your laptop starts running very slowly after you open an unknown email attachment. What most likely happened?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The attachment may have installed malware on the laptop"
+            },
+            {
+              "id": "b",
+              "text": "The laptop has automatically upgraded its memory"
+            },
+            {
+              "id": "c",
+              "text": "The email has increased the internet speed"
+            },
+            {
+              "id": "d",
+              "text": "The keyboard has changed its language"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q07",
+          "question": "Your school's website suddenly stops working because thousands of unknown devices send it traffic at once. What is this called?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "A software update"
+            },
+            {
+              "id": "b",
+              "text": "A distributed denial-of-service (DDoS) attack"
+            },
+            {
+              "id": "c",
+              "text": "A normal search request"
+            },
+            {
+              "id": "d",
+              "text": "A password reset"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q08",
+          "question": "Which sequence correctly shows the typical stages of identity theft?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Return the identity → create a password → delete the account"
+            },
+            {
+              "id": "b",
+              "text": "Create a profile → update software → install a printer"
+            },
+            {
+              "id": "c",
+              "text": "Obtain someone's personal information → use it to impersonate them or access accounts → misuse it"
+            },
+            {
+              "id": "d",
+              "text": "Send a greeting → browse a website → close a browser"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q09",
+          "question": "Viruses, worms, and ransomware are all examples of which type of cybercrime?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Online shopping"
+            },
+            {
+              "id": "b",
+              "text": "Copyright protection"
+            },
+            {
+              "id": "c",
+              "text": "Video conferencing"
+            },
+            {
+              "id": "d",
+              "text": "Malware-related cybercrime"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q10",
+          "question": "The WannaCry attack in 2017 is best classified as which type of cybercrime?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Ransomware attack"
+            },
+            {
+              "id": "b",
+              "text": "Online auction fraud"
+            },
+            {
+              "id": "c",
+              "text": "Identity verification"
+            },
+            {
+              "id": "d",
+              "text": "Website design attack"
+            }
+          ],
+          "correctAnswer": "a"
+        }
+      ]
+    },
+    {
+      "lessonId": "lesson-5",
+      "title": "Inappropriate Content and Online Safety",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "What does the term “inappropriate content” mean in an online context?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Information that is always suitable for every age"
+            },
+            {
+              "id": "b",
+              "text": "Material that may be harmful, offensive, unsafe, or unsuitable for certain users"
+            },
+            {
+              "id": "c",
+              "text": "A computer program used for drawing"
+            },
+            {
+              "id": "d",
+              "text": "A website that contains only school lessons"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q02",
+          "question": "Most social media platforms require users to be at least what age to sign up?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "5 years old"
+            },
+            {
+              "id": "b",
+              "text": "10 years old"
+            },
+            {
+              "id": "c",
+              "text": "13 years old, although requirements vary by platform and country"
+            },
+            {
+              "id": "d",
+              "text": "21 years old on every platform"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q03",
+          "question": "Which organization works specifically to remove child sexual abuse material from the internet?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "A local sports club"
+            },
+            {
+              "id": "b",
+              "text": "A computer hardware shop"
+            },
+            {
+              "id": "c",
+              "text": "A general online shopping company"
+            },
+            {
+              "id": "d",
+              "text": "The Internet Watch Foundation (IWF)"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q04",
+          "question": "What is the main function of web content filter software?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To block or restrict access to selected websites or online content"
+            },
+            {
+              "id": "b",
+              "text": "To increase the speed of every computer"
+            },
+            {
+              "id": "c",
+              "text": "To create social media accounts"
+            },
+            {
+              "id": "d",
+              "text": "To automatically publish photos"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q05",
+          "question": "Imagine a classmate shows you a website that encourages dangerous behavior. What is the best response?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Share it with more classmates"
+            },
+            {
+              "id": "b",
+              "text": "Leave the website and tell a trusted adult or teacher"
+            },
+            {
+              "id": "c",
+              "text": "Follow the instructions on the website"
+            },
+            {
+              "id": "d",
+              "text": "Post your personal information there"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q06",
+          "question": "Your parents install software on your computer to monitor and limit certain online content. What is this software called?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Presentation software"
+            },
+            {
+              "id": "b",
+              "text": "Spreadsheet software"
+            },
+            {
+              "id": "c",
+              "text": "Parental control or content-filtering software"
+            },
+            {
+              "id": "d",
+              "text": "Video-editing software"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q07",
+          "question": "A child has gone missing and may be at risk online. Which organization would best help with this case?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "A music streaming service"
+            },
+            {
+              "id": "b",
+              "text": "A computer games company"
+            },
+            {
+              "id": "c",
+              "text": "An online auction website"
+            },
+            {
+              "id": "d",
+              "text": "The National Center for Missing & Exploited Children (NCMEC)"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q08",
+          "question": "A 13-year-old wants to create a YouTube account. What condition usually applies?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "They may be able to use YouTube, but age requirements and parental supervision rules depend on the country and account type"
+            },
+            {
+              "id": "b",
+              "text": "They can use any online service without age restrictions"
+            },
+            {
+              "id": "c",
+              "text": "They must share their password publicly"
+            },
+            {
+              "id": "d",
+              "text": "They must create an account using a stranger's identity"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q09",
+          "question": "CEOP, IWF, and NCMEC are similar. What do they all mainly aim to do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Sell computer equipment"
+            },
+            {
+              "id": "b",
+              "text": "Help protect children from online exploitation and abuse, and support reporting or action against harmful material"
+            },
+            {
+              "id": "c",
+              "text": "Provide online banking services"
+            },
+            {
+              "id": "d",
+              "text": "Create games for children"
+            }
+          ],
+          "correctAnswer": "b"
+        }
+      ]
+    },
+    {
+      "lessonId": "lesson-6",
+      "title": "Managing Your Digital Footprint",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "Which of these best describes a person's digital footprint?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The physical marks left by shoes near a computer"
+            },
+            {
+              "id": "b",
+              "text": "A list of files stored only on a USB drive"
+            },
+            {
+              "id": "c",
+              "text": "The trail of information a person leaves through online activities"
+            },
+            {
+              "id": "d",
+              "text": "A computer's electricity usage"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q02",
+          "question": "Why does a website store HTTP cookies?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To physically clean the computer"
+            },
+            {
+              "id": "b",
+              "text": "To replace the computer's operating system"
+            },
+            {
+              "id": "c",
+              "text": "To prevent all websites from collecting information"
+            },
+            {
+              "id": "d",
+              "text": "To remember information such as preferences, sessions, and browsing activity"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q03",
+          "question": "Why is it recommended to delete old, unused online accounts?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To reduce the amount of personal information exposed and lower security risks"
+            },
+            {
+              "id": "b",
+              "text": "To make every website load more slowly"
+            },
+            {
+              "id": "c",
+              "text": "To remove the need for internet access"
+            },
+            {
+              "id": "d",
+              "text": "To make old passwords public"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q04",
+          "question": "What does a VPN mainly help protect while using public Wi-Fi?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The physical screen from scratches"
+            },
+            {
+              "id": "b",
+              "text": "The privacy of internet traffic by encrypting the connection between the device and VPN service"
+            },
+            {
+              "id": "c",
+              "text": "The device from running out of battery"
+            },
+            {
+              "id": "d",
+              "text": "The user's files from being deleted by mistake"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q05",
+          "question": "You are preparing your profile before a college or job application. What should you do to improve your digital footprint?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Post personal arguments publicly"
+            },
+            {
+              "id": "b",
+              "text": "Use an offensive username"
+            },
+            {
+              "id": "c",
+              "text": "Review old posts and share appropriate, positive, and accurate information"
+            },
+            {
+              "id": "d",
+              "text": "Share your passwords to prove you are trustworthy"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q06",
+          "question": "An employer searches your name online before an interview. What is most likely being reviewed?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Your computer's screen size"
+            },
+            {
+              "id": "b",
+              "text": "Your private files stored offline"
+            },
+            {
+              "id": "c",
+              "text": "The number of apps on your phone"
+            },
+            {
+              "id": "d",
+              "text": "Your public online presence and digital footprint"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q07",
+          "question": "You need to check your bank account using free Wi-Fi at a cafe. What is the safest thing to do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Use your mobile network or a trusted VPN and ensure you are on the bank's official secure website"
+            },
+            {
+              "id": "b",
+              "text": "Use any banking link sent by a stranger"
+            },
+            {
+              "id": "c",
+              "text": "Save your password on the public computer"
+            },
+            {
+              "id": "d",
+              "text": "Leave your account signed in when you finish"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q08",
+          "question": "Which order of actions would best help improve your digital footprint over time?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Post everything publicly → ignore privacy → keep unused accounts"
+            },
+            {
+              "id": "b",
+              "text": "Review existing posts and accounts → remove or update unsuitable content → use privacy settings → share responsibly in future"
+            },
+            {
+              "id": "c",
+              "text": "Share passwords → accept every friend request → disable security"
+            },
+            {
+              "id": "d",
+              "text": "Create more accounts → reuse old passwords → ignore account settings"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q09",
+          "question": "If clearing your browser cookies reduces tracking, what is a likely trade-off?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The computer will no longer need software updates"
+            },
+            {
+              "id": "b",
+              "text": "All websites will become unavailable permanently"
+            },
+            {
+              "id": "c",
+              "text": "Some websites may forget preferences or sign you out, so you may need to log in again"
+            },
+            {
+              "id": "d",
+              "text": "Your online identity will be erased completely"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q10",
+          "question": "What do positive and negative digital footprint examples have in common?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "They are always created intentionally"
+            },
+            {
+              "id": "b",
+              "text": "They can only be seen by the person who created them"
+            },
+            {
+              "id": "c",
+              "text": "They disappear as soon as a browser closes"
+            },
+            {
+              "id": "d",
+              "text": "They are traces of a person's online activity that may affect how others view them"
+            }
+          ],
+          "correctAnswer": "d"
+        }
+      ]
+    }
+  ]
+}

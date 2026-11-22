@@ -1,0 +1,48 @@
+{
+  "metadata": {
+    "id": "grade-6-lesson-1",
+    "grade": 6,
+    "subject": "Computer Science",
+    "lesson": 1,
+    "title": "Introduction to Computers",
+    "version": 1
+  },
+  "questions": [
+    {
+      "id": "L1-Q001",
+      "type": "mcq",
+      "question": "Which of the following is known as the brain of a computer?",
+      "marks": 2,
+      "options": [
+        { "id": "A", "text": "Monitor" },
+        { "id": "B", "text": "CPU" },
+        { "id": "C", "text": "Keyboard" },
+        { "id": "D", "text": "Mouse" }
+      ],
+      "correctOptionId": "B",
+      "explanation": "The CPU processes instructions and controls the operations of a computer."
+    },
+    {
+      "id": "L1-Q002",
+      "type": "true_false",
+      "question": "A keyboard is an output device.",
+      "marks": 1,
+      "options": [
+        { "id": "A", "text": "True" },
+        { "id": "B", "text": "False" }
+      ],
+      "correctOptionId": "B",
+      "explanation": "A keyboard is an input device because it is used to enter data into a computer."
+    },
+    {
+      "id": "L1-Q003",
+      "type": "short_answer",
+      "question": "What does CPU stand for?",
+      "marks": 2,
+      "acceptedAnswers": ["Central Processing Unit"],
+      "caseSensitive": false,
+      "trimWhitespace": true,
+      "explanation": "CPU stands for Central Processing Unit."
+    }
+  ]
+}

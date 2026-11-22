@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quiz</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/quiz.css">
+</head>
+<body class="quiz-page no-print">
+  <main class="container quiz-container">
+    <div id="loading" class="loading"><span class="spinner"></span> Loading quiz…</div>
+    <div id="notice" class="notice" hidden></div>
+
+    <!-- Error screen -->
+    <section id="errorCard" class="card center" hidden>
+      <h1>Something went wrong</h1>
+      <p id="errorText"></p>
+      <div class="stack-actions">
+        <button type="button" id="errorRetry" class="btn btn-primary">Try again</button>
+        <a href="index.html" class="btn">Back to start</a>
+      </div>
+    </section>
+
+    <!-- Intro / begin screen -->
+    <section id="introCard" class="card" hidden>
+      <h1 id="introTitle"></h1>
+      <dl class="details-list" id="introDetails"></dl>
+      <h2>Before you begin</h2>
+      <ul class="rules-list">
+        <li>Questions appear one at a time. Use <b>Next</b> and <b>Previous</b> to move between them.</li>
+        <li>You can change your answers until you press <b>Submit</b>.</li>
+        <li>Your answers are saved as you go, so a refresh will not lose them.</li>
+        <li>Stay on this page. Leaving the quiz or switching tabs is recorded and shown to your teacher.</li>
+        <li>The quiz opens in fullscreen when your device allows it.</li>
+      </ul>
+      <button type="button" id="beginBtn" class="btn btn-primary btn-block">Begin quiz</button>
+    </section>
+
+    <!-- Question screen -->
+    <section id="questionScreen" hidden>
+      <div class="quiz-top">
+        <div class="quiz-title" id="quizTitle"></div>
+        <div class="quiz-meta">
+          <span id="questionCounter"></span>
+          <span id="saveStatus" class="save-status"></span>
+        </div>
+        <div class="progress" aria-hidden="true"><div class="progress-bar" id="progressBar"></div></div>
+      </div>
+
+      <div id="fullscreenBanner" class="notice notice-warning fs-banner" hidden>
+        <span>You left fullscreen mode.</span>
+        <button type="button" id="fullscreenBtn" class="btn btn-small">Return to fullscreen</button>
+      </div>
+
+      <article class="card question-card protected" id="questionCard">
+        <div class="question-head">
+          <span class="badge badge-info" id="questionType"></span>
+          <span class="badge" id="questionMarks"></span>
+        </div>
+        <h2 class="question-text" id="questionText"></h2>
+        <img id="questionImage" class="question-image" alt="" hidden>
+        <div id="answerArea" class="answer-area"></div>
+      </article>
+
+      <nav class="quiz-nav">
+        <button type="button" id="prevBtn" class="btn">← Previous</button>
+        <button type="button" id="nextBtn" class="btn btn-primary">Next →</button>
+        <button type="button" id="reviewBtn" class="btn btn-success">Review and submit</button>
+      </nav>
+
+      <details class="navigator">
+        <summary>Jump to a question</summary>
+        <div id="navigatorGrid" class="navigator-grid"></div>
+      </details>
+    </section>
+
+    <!-- Review screen -->
+    <section id="reviewScreen" class="card" hidden>
+      <h1>Review your answers</h1>
+      <p id="reviewSummary"></p>
+      <div id="reviewWarning" class="notice notice-warning" hidden></div>
+      <p class="small muted">Tap a question number to go back to it.</p>
+      <div id="reviewGrid" class="navigator-grid review-grid"></div>
+      <div class="stack-actions">
+        <button type="button" id="backToQuizBtn" class="btn">← Back to questions</button>
+        <button type="button" id="submitBtn" class="btn btn-success">Submit quiz</button>
+      </div>
+    </section>
+
+    <!-- Done screen -->
+    <section id="doneCard" class="card center" hidden>
+      <div class="done-icon" aria-hidden="true">✓</div>
+      <h1>Quiz submitted</h1>
+      <p id="doneText"></p>
+      <p class="muted">Your teacher will check your answers. You may close this page now.</p>
+      <a href="index.html" class="btn">Back to start</a>
+    </section>
+  </main>
+
+  <!-- Final confirmation -->
+  <div id="submitModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="submitTitle">
+      <h2 id="submitTitle">Submit your quiz?</h2>
+      <p id="submitModalText"></p>
+      <div id="submitError" class="notice notice-error" hidden></div>
+      <div class="actions">
+        <button type="button" class="btn" id="submitCancel">Not yet</button>
+        <button type="button" class="btn btn-success" id="submitConfirm">Yes, submit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Left-the-quiz warning -->
+  <div id="leaveModal" class="modal-backdrop" hidden>
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="leaveTitle">
+      <h2 id="leaveTitle">Please stay on the quiz</h2>
+      <p id="leaveText"></p>
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="leaveOk">Continue quiz</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="offlineBanner" class="offline-banner" hidden>You are offline. Keep going: your answers are saved on this device.</div>
+
+  <script type="module" src="js/quiz.js"></script>
+</body>
+</html>

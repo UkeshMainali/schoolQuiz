@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Teacher Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="inner">
+      <span class="brand">Classroom Quiz <small>Teacher</small></span>
+      <div id="userBox" class="user-box" hidden>
+        <span id="userEmail" class="small muted"></span>
+        <button type="button" id="signOutBtn" class="btn btn-small">Sign out</button>
+      </div>
+    </div>
+  </header>
+
+  <div id="authLoading" class="loading"><span class="spinner"></span> Checking sign-in…</div>
+
+  <!-- Sign in -->
+  <main id="loginView" class="container" hidden>
+    <section class="card login-card">
+      <h1>Teacher sign in</h1>
+      <div id="loginNotice" class="notice" hidden></div>
+      <form id="loginForm" novalidate>
+        <div class="field">
+          <label for="loginEmail">Email</label>
+          <input type="email" id="loginEmail" autocomplete="username" required>
+        </div>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input type="password" id="loginPassword" autocomplete="current-password" required>
+        </div>
+        <button type="submit" id="loginBtn" class="btn btn-primary btn-block">Sign in</button>
+      </form>
+      <p class="small center" style="margin-top:16px"><button type="button" id="forgotBtn" class="btn-link">Forgot password?</button></p>
+      <p class="small muted center"><a href="index.html">Back to student page</a></p>
+    </section>
+  </main>
+
+  <!-- Signed in but not a teacher -->
+  <main id="deniedView" class="container" hidden>
+    <section class="card">
+      <h1>Access denied</h1>
+      <p>This account is not authorised to use the teacher dashboard.</p>
+      <p class="small muted">If you are the teacher, add a document with this ID to the <code>teachers</code> collection in the Firebase console (see README):</p>
+      <p><code id="deniedUid" class="uid-box"></code></p>
+      <button type="button" id="deniedSignOut" class="btn">Sign out</button>
+    </section>
+  </main>
+
+  <!-- Dashboard -->
+  <main id="appView" class="container container-wide" hidden>
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab active" data-tab="results" role="tab">Results</button>
+      <button type="button" class="tab" data-tab="analysis" role="tab">Analysis</button>
+      <button type="button" class="tab" data-tab="quizzes" role="tab">Quizzes</button>
+      <button type="button" class="tab" data-tab="settings" role="tab">Settings</button>
+    </nav>
+
+    <div id="appNotice" class="notice" hidden></div>
+
+    <div class="toolbar">
+      <div class="field inline-field">
+        <label for="quizFilter">Quiz</label>
+        <select id="quizFilter"></select>
+      </div>
+      <button type="button" id="refreshBtn" class="btn btn-small">↻ Refresh</button>
+      <span id="dataInfo" class="small muted"></span>
+    </div>
+
+    <!-- RESULTS -->
+    <section id="tab-results" class="tab-panel">
+      <div class="summary-grid" id="summaryCards"></div>
+
+      <div id="gradeBanner" class="notice notice-warning grade-banner" hidden>
+        <span id="gradeBannerText"></span>
+        <button type="button" id="gradeBtn" class="btn btn-primary btn-small">Grade now</button>
+      </div>
+
+      <div class="card">
+        <div class="filters">
+          <input type="search" id="searchInput" placeholder="Search name or roll no." aria-label="Search">
+          <select id="gradeFilter" aria-label="Grade"></select>
+          <select id="sectionFilter" aria-label="Section"></select>
+          <select id="statusFilter" aria-label="Status">
+            <option value="">All statuses</option>
+            <option value="graded">Graded</option>
+            <option value="ungraded">Needs grading</option>
+            <option value="in_progress">In progress</option>
+            <option value="passed">Passed</option>
+            <option value="failed">Failed</option>
+            <option value="flagged">Left the quiz 3+ times</option>
+          </select>
+          <button type="button" id="clearFilters" class="btn btn-small">Clear filters</button>
+        </div>
+        <div class="table-head">
+          <span id="matchCount" class="small muted"></span>
+          <div class="table-actions">
+            <button type="button" id="regradeBtn" class="btn btn-small" title="Grade every submitted attempt again, e.g. after fixing the answer key">Regrade all</button>
+            <button type="button" id="exportBtn" class="btn btn-small">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="resultsTable">
+            <thead>
+              <tr>
+                <th data-sort="studentName">Student name</th>
+                <th data-sort="rollNum">Roll no.</th>
+                <th data-sort="grade">Grade</th>
+                <th data-sort="section">Section</th>
+                <th data-sort="quizTitle" class="col-quiz">Quiz</th>
+                <th data-sort="obtained" class="num">Obtained</th>
+                <th data-sort="total" class="num">Total</th>
+                <th data-sort="percentage" class="num">%</th>
+                <th data-sort="statusOrder">Status</th>
+                <th data-sort="focusLossCount" class="num" title="Times the student left the quiz page">Left page</th>
+                <th data-sort="submittedMs">Submitted</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyState" class="empty" hidden></div>
+        <div class="center" style="margin-top:12px">
+          <button type="button" id="loadMoreBtn" class="btn btn-small" hidden>Load more</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ANALYSIS -->
+    <section id="tab-analysis" class="tab-panel" hidden>
+      <p class="small muted">Only graded submissions are included. Grade new submissions on the Results tab first.</p>
+      <div id="analysisContent"></div>
+    </section>
+
+    <!-- QUIZZES -->
+    <section id="tab-quizzes" class="tab-panel" hidden>
+      <div class="card">
+        <h2>Import a question bank</h2>
+        <p class="small muted">Choose one or more JSON question-bank files. The file is read here in your browser. Questions are saved to <code>quizzes</code> (no answers) and correct answers to <code>answerKeys</code>, which only you can read.</p>
+        <input type="file" id="importFile" accept=".json,application/json" multiple>
+        <div id="importPreview"></div>
+      </div>
+
+      <div class="card">
+        <h2>Quizzes</h2>
+        <p class="small muted">Students can only see quizzes that are <b>Open</b>. Close a quiz to stop new attempts.</p>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Title</th><th>ID</th><th>Grade</th><th class="num">Questions</th><th class="num">Marks</th><th>Version</th><th>Status</th><th>Actions</th></tr></thead>
+            <tbody id="quizzesBody"></tbody>
+          </table>
+        </div>
+        <div id="answerKeyView"></div>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="tab-panel" hidden>
+      <div class="card">
+        <h2>School settings</h2>
+        <form id="settingsForm" novalidate>
+          <div class="row">
+            <div class="field">
+              <label for="setGrades">Grades</label>
+              <input type="text" id="setGrades" placeholder="6">
+              <div class="hint">Separate with commas, e.g. 6, 7</div>
+            </div>
+            <div class="field">
+              <label for="setSections">Sections</label>
+              <input type="text" id="setSections" placeholder="A, B, C, D">
+              <div class="hint">Separate with commas</div>
+            </div>
+            <div class="field">
+              <label for="setPass">Pass mark (%)</label>
+              <input type="number" id="setPass" min="1" max="100" step="1">
+              <div class="hint">Used when a quiz does not set its own</div>
+            </div>
+          </div>
+          <h3>Expected number of students (optional)</h3>
+          <p class="small muted">Fill in class sizes to see how many students have not submitted yet.</p>
+          <div id="classSizeFields" class="class-size-grid"></div>
+          <button type="submit" class="btn btn-primary" id="saveSettingsBtn">Save settings</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle"></h2>
+      <p id="confirmText"></p>
+      <div class="actions">
+        <button type="button" class="btn" id="confirmCancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="confirmOk">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>

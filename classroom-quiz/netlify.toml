@@ -1,0 +1,66 @@
+# Netlify settings. The site is plain static files: there is no build step.
+[build]
+  publish = "."
+  command = ""
+
+# Never serve question banks or project config files, even if they are
+# committed by mistake. "!" forces the 404 even though the files exist.
+[[redirects]]
+  from = "/data/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/question-banks/*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/firestore.rules"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/README.md"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Always check for a newer version, so students get updates right away.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/css/*"
+  [headers.values]
+    Cache-Control = "no-cache"
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+# Keep the teacher pages out of search engines.
+[[headers]]
+  for = "/dashboard*"
+  [headers.values]
+    X-Robots-Tag = "noindex"
+[[headers]]
+  for = "/result*"
+  [headers.values]
+    X-Robots-Tag = "noindex"
