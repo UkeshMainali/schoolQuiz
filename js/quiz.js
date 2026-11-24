@@ -23,7 +23,7 @@ const els = Object.fromEntries([
   "questionImage", "answerArea", "prevBtn", "nextBtn", "reviewBtn", "navigatorGrid", "reviewScreen",
   "reviewSummary", "reviewWarning", "reviewGrid", "backToQuizBtn", "submitBtn", "doneCard", "doneText",
   "submitModal", "submitModalText", "submitError", "submitCancel", "submitConfirm", "leaveModal",
-  "leaveText", "leaveOk", "offlineBanner"
+  "leaveText", "leaveOk", "offlineBanner", "firstUnansweredBtn", "obscureCover", "questionLesson"
 ].map((id) => [id, $(id)]));
 
 const state = {
@@ -145,6 +145,7 @@ function clearLocal() {
 function stopMonitoring() {
   stopAntiCheat?.();
   stopAntiCheat = null;
+  setObscured(false);
   clearInterval(saveTimer);
   document.body.classList.remove("quiz-active");
   if (isFullscreen()) document.exitFullscreen?.().catch(() => {});
@@ -270,6 +271,11 @@ async function startNewAttempt(pending) {
   quiz.id = quizId;
   applyQuiz(quiz);
 
+  if (quiz.grade && String(quiz.grade) !== String(student.grade)) {
+    storage.remove(PENDING_KEY);
+    showError(`This quiz is for Grade ${quiz.grade} students only.`, false);
+    return;
+  }
   const attemptId = makeAttemptId(quizId, student.grade, student.section, student.roll);
   const existing = await checkAttempt(attemptId);
   if (existing.state === "taken") {
@@ -310,6 +316,19 @@ function showIntro(resuming) {
   showOnly("introCard");
 }
 
+/** Hides the question while the quiz window is not the active window. */
+function setObscured(on) {
+  document.body.classList.toggle("obscured", !!on);
+  els.obscureCover.hidden = !on;
+}
+
+/** Faint name + roll number behind the question: a shared photo shows who took it. */
+function setWatermark() {
+  const s = state.student || {};
+  const text = `${s.name || ""} · Roll ${s.roll || ""} · ${s.grade || ""}-${s.section || ""}`;
+  els.questionCard.dataset.watermark = text;
+}
+
 async function begin() {
   if (fullscreenSupported()) await requestFullscreen();
   state.started = true;
@@ -321,6 +340,7 @@ async function begin() {
       recordEvent(reason);
       saveRemote();
     },
+    onObscure: (on) => setObscured(on),
     onReturn: () => {
       els.leaveText.textContent = `You left the quiz page. This has been recorded (${state.focusLossCount} time${state.focusLossCount === 1 ? "" : "s"}) and your teacher can see it.`;
       els.leaveModal.hidden = false;
@@ -334,6 +354,7 @@ async function begin() {
     onEvent: (type) => recordEvent(type)
   });
   saveTimer = setInterval(() => saveRemote(), SAVE_INTERVAL_MS);
+  setWatermark();
   renderQuestion();
   showOnly("questionScreen");
   setSaveStatus(state.dirty ? "Saved on this device" : "All answers saved", state.dirty ? "offline" : "ok");
@@ -353,6 +374,9 @@ function renderQuestion() {
   els.questionType.textContent = TYPE_LABELS[q.type] || "Question";
   els.questionMarks.textContent = `${q.marks} mark${q.marks === 1 ? "" : "s"}`;
   els.questionText.textContent = q.text;
+  const showLesson = q.lessonTitle && state.quiz.merged;
+  els.questionLesson.hidden = !showLesson;
+  els.questionLesson.textContent = showLesson ? q.lessonTitle : "";
   if (q.image) { els.questionImage.src = q.image; els.questionImage.hidden = false; }
   else { els.questionImage.hidden = true; els.questionImage.removeAttribute("src"); }
 
@@ -435,17 +459,32 @@ function goTo(index) {
 
 // ------------------------------------------------------------------- review
 
+/** Indexes (in the student's order) of questions without an answer. */
+function unansweredIndexes() {
+  return state.order.map((qid, i) => (isAnswered(qid) ? -1 : i)).filter((i) => i >= 0);
+}
+
+function remainingMessage(missing) {
+  return missing === 1
+    ? "Please answer the 1 remaining question before submitting."
+    : `Please answer all ${missing} remaining questions before submitting.`;
+}
+
 function openReview() {
   const total = state.order.length;
   const done = answeredCount();
-  const missing = total - done;
+  const missing = unansweredIndexes();
   els.reviewSummary.textContent = `You have answered ${done} of ${total} questions.`;
-  if (missing > 0) {
-    els.reviewWarning.textContent = `${missing} question${missing === 1 ? " is" : "s are"} not answered yet (shown in orange). You can still submit, but unanswered questions get no marks.`;
+  if (missing.length) {
+    els.reviewWarning.textContent = `${remainingMessage(missing.length)} Unanswered: question${missing.length === 1 ? "" : "s"} ${missing.map((i) => i + 1).join(", ")} (shown in orange).`;
     els.reviewWarning.hidden = false;
   } else {
     els.reviewWarning.hidden = true;
   }
+  // Every question must be answered: the button stays disabled until then,
+  // and doSubmit() checks again (the button state alone is not trusted).
+  els.submitBtn.disabled = missing.length > 0;
+  els.firstUnansweredBtn.hidden = missing.length === 0;
   renderNavigator(els.reviewGrid);
   showOnly("reviewScreen");
   window.scrollTo({ top: 0 });
@@ -453,10 +492,8 @@ function openReview() {
 }
 
 function openSubmitModal() {
-  const missing = state.order.length - answeredCount();
-  els.submitModalText.textContent = missing > 0
-    ? `You still have ${missing} unanswered question${missing === 1 ? "" : "s"}. After submitting you cannot change your answers.`
-    : "After submitting you cannot change your answers.";
+  if (unansweredIndexes().length) { openReview(); return; }
+  els.submitModalText.textContent = "You have answered every question. After submitting you cannot change your answers.";
   els.submitError.hidden = true;
   els.submitConfirm.disabled = false;
   els.submitConfirm.textContent = "Yes, submit";
@@ -467,6 +504,14 @@ function openSubmitModal() {
 
 async function doSubmit() {
   if (state.submitting || state.submitted) return; // ignore double clicks
+  // Re-check right before sending: never submit with unanswered questions.
+  const missing = unansweredIndexes();
+  if (missing.length) {
+    els.submitModal.hidden = true;
+    openReview();
+    showNotice(els.notice, remainingMessage(missing.length), "error");
+    return;
+  }
   state.submitting = true;
   persistLocal();
   els.submitConfirm.disabled = true;
@@ -527,6 +572,11 @@ els.nextBtn.addEventListener("click", () => go(1));
 els.reviewBtn.addEventListener("click", openReview);
 els.backToQuizBtn.addEventListener("click", () => goTo(state.currentIndex));
 els.submitBtn.addEventListener("click", openSubmitModal);
+els.firstUnansweredBtn.addEventListener("click", () => {
+  const first = unansweredIndexes()[0];
+  if (first !== undefined) goTo(first);
+});
+els.obscureCover.addEventListener("click", () => { window.focus(); setObscured(false); });
 els.submitCancel.addEventListener("click", () => { els.submitModal.hidden = true; });
 els.submitConfirm.addEventListener("click", doSubmit);
 els.leaveOk.addEventListener("click", () => {

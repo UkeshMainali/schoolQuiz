@@ -79,6 +79,11 @@ export function gradeAttempt(attempt, key, overrides = {}, defaultPassPercent = 
       questionId: qid,
       position: position + 1,
       type: kq.type || "mcq",
+      // Stored so results stay readable and printable even if the quiz is
+      // later deleted or archived.
+      text: kq.text || "",
+      lessonId: kq.lessonId || "",
+      lessonTitle: kq.lessonTitle || "",
       given: answered ? String(given) : null,
       givenText: answered ? (kq.type === "short_answer" ? String(given) : optionText(given)) : "",
       correctAnswer: kq.type === "short_answer" ? (kq.acceptedAnswers || []).join(" / ") : optionText(kq.correctOptionId),

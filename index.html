@@ -10,7 +10,7 @@
 <body>
   <header class="site-header">
     <div class="inner">
-      <span class="brand">Classroom Quiz</span>
+      <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">CQ</span>Classroom Quiz</a>
     </div>
   </header>
 
@@ -18,33 +18,21 @@
     <div id="loading" class="loading"><span class="spinner"></span> Loading…</div>
     <div id="notice" class="notice" hidden></div>
 
-    <!-- Shown when this browser has an unfinished quiz -->
-    <section id="resumeCard" class="card" hidden>
-      <h1>Continue your quiz</h1>
-      <p id="resumeText"></p>
-      <a id="resumeLink" class="btn btn-primary btn-block" href="quiz.html">Continue quiz</a>
-      <p class="small muted center" style="margin-top:16px">
-        Not you? <button type="button" id="notMeBtn" class="btn-link">Start as a different student</button>
-      </p>
-    </section>
-
-    <section id="startCard" class="card" hidden>
-      <h1>Start a quiz</h1>
-      <p class="muted">Fill in your details carefully. You cannot change them after the quiz starts.</p>
-
-      <form id="studentForm" novalidate>
+    <!-- Student details (first visit, or "Change details") -->
+    <section id="profileCard" class="card" hidden>
+      <h1 id="profileTitle">Welcome! Tell us who you are</h1>
+      <p class="muted" id="profileIntro">Saved on this device so you only type it once.</p>
+      <form id="profileForm" novalidate>
         <div class="field">
           <label for="fullName">Full name</label>
           <input type="text" id="fullName" autocomplete="name" maxlength="80" placeholder="e.g. Ram Sharma" required>
           <div class="error-text" data-error-for="fullName" hidden></div>
         </div>
-
         <div class="field">
           <label for="rollNo">Roll number</label>
           <input type="text" id="rollNo" inputmode="numeric" maxlength="6" placeholder="e.g. 12" required>
           <div class="error-text" data-error-for="rollNo" hidden></div>
         </div>
-
         <div class="row">
           <div class="field">
             <label for="grade">Grade</label>
@@ -57,32 +45,48 @@
             <div class="error-text" data-error-for="section" hidden></div>
           </div>
         </div>
-
-        <div class="field">
-          <label for="quizSelect">Quiz</label>
-          <select id="quizSelect" required></select>
-          <div class="error-text" data-error-for="quizSelect" hidden></div>
+        <div class="form-actions">
+          <button type="button" id="cancelProfileBtn" class="btn" hidden>Cancel</button>
+          <button type="submit" id="saveProfileBtn" class="btn btn-primary">Save and see my quizzes</button>
         </div>
-
-        <button type="submit" id="startBtn" class="btn btn-primary btn-block">Start quiz</button>
       </form>
     </section>
 
-    <!-- Confirm identity before starting -->
-    <div id="confirmModal" class="modal-backdrop" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
-        <h2 id="confirmTitle">Are these details correct?</h2>
-        <dl class="details-list" id="confirmDetails"></dl>
-        <p class="small muted">The quiz will open. Fullscreen mode will be turned on if your device allows it.</p>
-        <div class="actions">
-          <button type="button" class="btn" id="confirmBack">Go back</button>
-          <button type="button" class="btn btn-primary" id="confirmStart">Yes, start quiz</button>
+    <!-- Quiz list -->
+    <section id="homeView" hidden>
+      <div class="profile-bar card">
+        <div>
+          <div class="profile-name" id="profileName"></div>
+          <div class="muted small" id="profileMeta"></div>
+        </div>
+        <div class="profile-actions">
+          <button type="button" id="editProfileBtn" class="btn btn-small">Change details</button>
+          <button type="button" id="switchStudentBtn" class="btn btn-small">Not you? Switch student</button>
         </div>
       </div>
-    </div>
 
-    <p class="small muted center" style="margin-top:32px"><a href="dashboard.html">Teacher login</a></p>
+      <div class="list-head">
+        <h1>Your quizzes</h1>
+        <span id="progressText" class="muted small"></span>
+      </div>
+      <div id="quizList" class="quiz-list" aria-live="polite"></div>
+    </section>
+
+    <p class="small muted center footer-link"><a href="dashboard.html">Teacher login</a></p>
   </main>
+
+  <!-- Confirm before starting -->
+  <div id="confirmModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
+      <h2 id="confirmTitle">Start this quiz?</h2>
+      <dl class="details-list" id="confirmDetails"></dl>
+      <p class="small muted">Check your details. They cannot be changed once the quiz starts.</p>
+      <div class="actions">
+        <button type="button" class="btn" id="confirmBack">Go back</button>
+        <button type="button" class="btn btn-primary" id="confirmStart">Start quiz</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="js/student.js"></script>
 </body>

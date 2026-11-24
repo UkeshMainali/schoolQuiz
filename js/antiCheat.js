@@ -4,6 +4,16 @@
 // screenshots, photos of the screen, a second device, or a student who
 // edits the page code. The real protection is that correct answers are never
 // sent to the student's browser.
+//
+// Screen-capture measures, and what they really do:
+//  - The question is hidden the moment the quiz window loses focus. Tools
+//    that take focus first (Windows Snipping Tool / Win+Shift+S, many
+//    screen recorders, switching apps) then capture a blank quiz.
+//  - Win+Shift / Cmd+Shift key combinations hide the question as soon as the
+//    keys go down, before the S/3/4/5 key that takes the screenshot.
+//  - Print Screen cannot be blocked: the browser is told only afterwards. We
+//    record it and overwrite the clipboard (best effort, Chrome/Edge).
+//  - Phones and tablets give web pages no screenshot signal at all.
 
 const BLOCKED_COMBOS = new Set(["c", "v", "x", "a", "p", "s", "u"]);
 
@@ -35,7 +45,7 @@ export function fullscreenSupported() {
  *   onEvent(type)           any other recorded event (print, blocked shortcut)
  * Returns a stop() function.
  */
-export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscreenEnter, onEvent, isActive }) {
+export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscreenEnter, onEvent, onObscure, isActive }) {
   let away = false;
   // A refresh or closing the page fires "hidden" too; do not count that as
   // leaving. If the student cancels the "Leave site?" prompt, reset shortly.
@@ -57,10 +67,32 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
   const onSelectStart = (e) => { if (active() && !inEditable(e.target)) e.preventDefault(); };
   const onDragStart = (e) => block(e);
 
+  let captureTimer = null;
+  const hideBriefly = (ms = 2000) => {
+    onObscure?.(true);
+    clearTimeout(captureTimer);
+    captureTimer = setTimeout(() => { if (document.hasFocus() && !away) onObscure?.(false); }, ms);
+  };
+
+  const onKeyUp = (e) => {
+    if (!active()) return;
+    if ((e.key || "").toLowerCase() === "printscreen") {
+      onEvent?.("printscreen_key");
+      hideBriefly();
+      // Replace the captured image on the clipboard (works only in some browsers).
+      navigator.clipboard?.writeText?.("Screenshots of the quiz are not allowed.").catch(() => {});
+    }
+  };
+
   const onKeyDown = (e) => {
     if (!active()) return;
     const key = (e.key || "").toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
+    // Win+Shift (Snipping Tool) and Cmd+Shift (macOS screenshots): hide first.
+    if (e.metaKey && e.shiftKey) {
+      hideBriefly(3000);
+      if (["s", "3", "4", "5"].includes(key)) onEvent?.("screenshot_shortcut");
+    }
     const devtools = key === "f12" ||
       (mod && e.shiftKey && ["i", "j", "c", "k"].includes(key)) ||
       (e.metaKey && e.altKey && ["i", "j", "c", "u"].includes(key));
@@ -71,7 +103,7 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
       e.stopPropagation();
       onEvent?.(devtools ? "devtools_shortcut" : `shortcut_${key}`);
     }
-    if (key === "printscreen") onEvent?.("printscreen_key");
+    if (key === "printscreen") hideBriefly();
   };
 
   const leave = (reason) => {
@@ -86,17 +118,22 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
   };
 
   const onVisibility = () => {
-    if (document.visibilityState === "hidden") leave("tab_hidden");
+    if (document.visibilityState === "hidden") { onObscure?.(true); leave("tab_hidden"); }
     else back();
   };
   // Window blur catches switching to another app while the tab stays visible.
   // Short delay so focus moving into an iframe/dialog does not count.
   let blurTimer = null;
   const onBlur = () => {
+    if (active()) onObscure?.(true); // hide at once, before any capture tool runs
     clearTimeout(blurTimer);
     blurTimer = setTimeout(() => { if (!document.hasFocus()) leave("window_blur"); }, 300);
   };
-  const onFocus = () => { clearTimeout(blurTimer); back(); };
+  const onFocus = () => {
+    clearTimeout(blurTimer);
+    if (active()) onObscure?.(false);
+    back();
+  };
 
   const onFullscreenChange = () => {
     if (!active()) return;
@@ -121,6 +158,7 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
     [document, "dragstart", onDragStart],
     [document, "drop", block],
     [document, "keydown", onKeyDown, true],
+    [document, "keyup", onKeyUp, true],
     [document, "visibilitychange", onVisibility],
     [window, "blur", onBlur],
     [window, "focus", onFocus],
@@ -135,6 +173,8 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
   return function stop() {
     clearTimeout(blurTimer);
     clearTimeout(unloadTimer);
+    clearTimeout(captureTimer);
+    onObscure?.(false);
     listeners.forEach(([t, ev, fn, cap]) => t.removeEventListener(ev, fn, !!cap));
   };
 }

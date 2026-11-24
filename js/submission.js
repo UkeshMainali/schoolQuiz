@@ -7,15 +7,34 @@ import {
 } from "./firebase.js";
 import { withTimeout } from "./utilities.js";
 
-/** Active quizzes, read once per page load (one read per quiz). */
-export async function loadActiveQuizzes() {
+/**
+ * Open quizzes for one grade (plus older quizzes that have no grade).
+ * Reads only the small list documents, not the questions. The grade is
+ * filtered here rather than in the query so that quizzes created before
+ * grades existed (no "grade" field at all) are still found. Starting a quiz
+ * of another grade is refused by the security rules.
+ */
+export async function loadActiveQuizzes(grade) {
   const snap = await getDocs(query(collection(db, "quizzes"), where("active", "==", true)));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .filter((q) => !q.archived && (!q.grade || String(q.grade) === String(grade)));
 }
 
+/**
+ * One quiz with its questions. New quizzes keep questions in
+ * quizContent/{id}; older ones have them inside quizzes/{id}.
+ * Returns null if the quiz does not exist or is not open.
+ */
 export async function loadQuiz(quizId) {
   const snap = await getDoc(doc(db, "quizzes", quizId));
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+  if (!snap.exists()) return null;
+  const quiz = { id: snap.id, ...snap.data() };
+  if (!Array.isArray(quiz.questions)) {
+    const content = await getDoc(doc(db, "quizContent", quizId));
+    quiz.questions = content.exists() ? content.data().questions || [] : [];
+  }
+  return quiz;
 }
 
 /**

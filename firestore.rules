@@ -5,10 +5,13 @@ rules_version = '2';
 // Collections
 //   teachers/{uid}        authorised teacher accounts (created by hand in the console)
 //   settings/school       grades, sections, pass mark, class sizes
-//   quizzes/{quizId}      public questions + options, NO correct answers
+//   quizzes/{quizId}      quiz list document (title, grade, counts, open/closed), NO answers.
+//                         Quizzes created before v2 also hold their questions here.
+//   quizContent/{quizId}  questions + options of a quiz, NO correct answers
 //   answerKeys/{quizId}   correct answers (teacher only)
 //   attempts/{attemptId}  one per student per quiz; written by the student
 //   results/{attemptId}   marks calculated by the teacher dashboard (teacher only)
+//   archivedAttempts/{id}, archivedResults/{id}   archived records (teacher only)
 //
 // Students sign in anonymously. The teacher signs in with email/password and
 // must have a document at teachers/{their uid}.
@@ -48,6 +51,16 @@ service cloud.firestore {
       allow write: if isTeacher();
     }
 
+    // ------------------------------------------------------------- quizContent
+    // Questions without answers. Students may read them only while the quiz
+    // is open.
+    match /quizContent/{quizId} {
+      allow get: if isTeacher()
+        || (signedIn() && get(/databases/$(database)/documents/quizzes/$(quizId)).data.active == true);
+      allow list: if isTeacher();
+      allow write: if isTeacher();
+    }
+
     // -------------------------------------------------------------- answerKeys
     match /answerKeys/{quizId} {
       allow read, write: if isTeacher();
@@ -62,21 +75,37 @@ service cloud.firestore {
         || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
       allow list: if isTeacher();
 
-      allow create: if signedIn() && validNewAttempt(attemptId);
+      // Students create their own attempt. The teacher may also create
+      // attempts when restoring archived records, importing a backup, or
+      // keeping an old attempt as a "previous attempt" for a retake.
+      allow create: if isTeacher() || (signedIn() && validNewAttempt(attemptId));
 
       // The owner may save progress and submit once. After submission the
-      // attempt is locked: nobody can change it, only the teacher can delete
-      // it (to allow a retake).
-      allow update: if signedIn()
-        && resource.data.uid == request.auth.uid
-        && resource.data.status == 'in_progress'
-        && validAttemptUpdate();
+      // attempt is locked for the student. The teacher may only change the
+      // review fields (accept / decline / pending review); answers and
+      // timestamps can never be edited.
+      allow update: if (signedIn()
+          && resource.data.uid == request.auth.uid
+          && resource.data.status == 'in_progress'
+          && validAttemptUpdate())
+        || (isTeacher()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['reviewStatus', 'reviewedAt', 'reviewedBy', 'reviewNote'])
+          && request.resource.data.reviewStatus in ['pending', 'accepted', 'declined']);
 
       allow delete: if isTeacher();
     }
 
     // ----------------------------------------------------------------- results
     match /results/{attemptId} {
+      allow read, write: if isTeacher();
+    }
+
+    // ---------------------------------------------------------------- archive
+    match /archivedAttempts/{attemptId} {
+      allow read, write: if isTeacher();
+    }
+    match /archivedResults/{attemptId} {
       allow read, write: if isTeacher();
     }
 
@@ -97,10 +126,14 @@ service cloud.firestore {
         && d.studentName is string && d.studentName.size() >= 2 && d.studentName.size() <= 80
         && d.nameLower == d.studentName.lower()
         && d.rollNo is string && d.rollNo.matches('^(0|[1-9][0-9]{0,5})$')
-        && d.grade is string && d.grade.matches('^[A-Za-z0-9]{1,10}$')
-        && d.section is string && d.section.matches('^[A-Za-z0-9]{1,10}$')
+        && d.grade is string && d.grade.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$')
+        && d.section is string && d.section.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$')
         && attemptId == d.quizId + '_' + d.grade + '_' + d.section + '_' + d.rollNo
         && quiz.active == true
+        && quiz.get('archived', false) != true
+        // A quiz made for one grade can only be taken by students of that
+        // grade. (Older quizzes without a grade are open to every grade.)
+        && (quiz.get('grade', '') == '' || quiz.get('grade', '') == d.grade)
         && d.quizTitle == quiz.title
         && d.questionCount == quiz.questionCount
         && d.order is list && d.order.size() == quiz.questionCount
@@ -130,7 +163,10 @@ service cloud.firestore {
         && d.events is list && d.events.size() <= 200
         && d.lastSavedAt == request.time
         && ((d.status == 'in_progress' && d.submittedAt == null)
-            || (d.status == 'submitted' && d.submittedAt == request.time));
+            // Every question must be answered before submitting.
+            || (d.status == 'submitted' && d.submittedAt == request.time
+                && d.answers.size() == old.questionCount
+                && d.answeredCount == old.questionCount));
     }
   }
 }

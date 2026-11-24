@@ -1,173 +1,227 @@
-// Student start page (index.html): details form and quiz selection.
+// Student homepage (index.html): remembered details + list of quizzes for
+// the student's grade, each with its own completion status.
 
 import { ensureStudentAuth } from "./auth.js";
 import { loadActiveQuizzes, checkAttempt } from "./submission.js";
 import {
-  loadSettings, normalizeRoll, normalizeName, makeAttemptId, escapeHtml,
-  friendlyError, showNotice, hideNotice, storage, ACTIVE_KEY, PENDING_KEY
+  loadSettings, sectionsFor, normalizeRoll, normalizeName, makeAttemptId, escapeHtml,
+  friendlyError, showNotice, hideNotice, storage, formatDateTime, pluralize,
+  ACTIVE_KEY, PENDING_KEY, PROFILE_KEY
 } from "./utilities.js";
 
 const $ = (id) => document.getElementById(id);
-const els = {
-  loading: $("loading"), notice: $("notice"),
-  resumeCard: $("resumeCard"), resumeText: $("resumeText"), notMeBtn: $("notMeBtn"),
-  startCard: $("startCard"), form: $("studentForm"),
-  fullName: $("fullName"), rollNo: $("rollNo"), grade: $("grade"), section: $("section"),
-  quizSelect: $("quizSelect"), startBtn: $("startBtn"),
-  confirmModal: $("confirmModal"), confirmDetails: $("confirmDetails"),
-  confirmBack: $("confirmBack"), confirmStart: $("confirmStart")
-};
+const FIELDS = ["fullName", "rollNo", "grade", "section"];
 
+let settings = null;
+let profile = storage.get(PROFILE_KEY);
 let quizzes = [];
+let statuses = new Map();
 let pendingStart = null;
+
+// ------------------------------------------------------------------ profile
 
 function fillSelect(select, values, placeholder) {
   select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>` +
     values.map((v) => `<option value="${escapeHtml(v.value)}">${escapeHtml(v.label)}</option>`).join("");
 }
 
-function updateQuizOptions() {
-  const grade = els.grade.value;
-  const list = quizzes
-    .filter((q) => !q.grade || !grade || String(q.grade) === grade)
-    .sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { numeric: true }));
-  const previous = els.quizSelect.value;
-  fillSelect(els.quizSelect, list.map((q) => ({
-    value: q.id, label: `${q.title} (${q.questionCount} questions)`
-  })), list.length ? "Choose a quiz" : "No quiz available for this grade");
-  if (list.some((q) => q.id === previous)) els.quizSelect.value = previous;
-  else if (list.length === 1) els.quizSelect.value = list[0].id;
+function updateSectionOptions(selected = "") {
+  const grade = $("grade").value;
+  const list = grade ? sectionsFor(settings, grade) : [];
+  fillSelect($("section"), list.map((s) => ({ value: s, label: `Section ${s}` })),
+    grade ? "Choose section" : "Choose grade first");
+  $("section").disabled = !grade;
+  if (list.includes(selected)) $("section").value = selected;
+  else if (list.length === 1) $("section").value = list[0];
 }
 
 function setFieldError(id, message) {
-  const input = $(id);
+  $(id).classList.toggle("invalid", !!message);
   const box = document.querySelector(`[data-error-for="${id}"]`);
-  input.classList.toggle("invalid", !!message);
   if (box) { box.textContent = message || ""; box.hidden = !message; }
 }
 
-function validate() {
-  const name = normalizeName(els.fullName.value);
-  const roll = normalizeRoll(els.rollNo.value);
-  const errors = {
-    fullName: !name ? "Please enter your full name." : name.length < 2 ? "Name is too short." : "",
-    rollNo: !els.rollNo.value.trim() ? "Please enter your roll number." : roll === null ? "Roll number must be digits only, for example 12." : "",
-    grade: !els.grade.value ? "Please choose your grade." : "",
-    section: !els.section.value ? "Please choose your section." : "",
-    quizSelect: !els.quizSelect.value ? "Please choose a quiz." : ""
-  };
-  Object.entries(errors).forEach(([id, msg]) => setFieldError(id, msg));
-  const firstBad = Object.keys(errors).find((k) => errors[k]);
-  if (firstBad) { $(firstBad).focus(); return null; }
-  return { name, roll, grade: els.grade.value, section: els.section.value, quizId: els.quizSelect.value };
+function showProfileForm(editing) {
+  hideNotice($("notice"));
+  $("homeView").hidden = true;
+  $("profileCard").hidden = false;
+  $("profileTitle").textContent = editing ? "Change your details" : "Welcome! Tell us who you are";
+  $("profileIntro").textContent = editing
+    ? "Fix any mistake here. Quizzes you already submitted keep the details you used then."
+    : "This is saved on this device, so you only type it once. You can change it later.";
+  $("cancelProfileBtn").hidden = !editing;
+  fillSelect($("grade"), settings.grades.map((g) => ({ value: g, label: `Grade ${g}` })), "Choose grade");
+  $("fullName").value = editing ? profile.name : "";
+  $("rollNo").value = editing ? profile.roll : "";
+  $("grade").value = editing && settings.grades.includes(profile.grade) ? profile.grade : (settings.grades.length === 1 ? settings.grades[0] : "");
+  updateSectionOptions(editing ? profile.section : "");
+  FIELDS.forEach((id) => setFieldError(id, ""));
+  $("fullName").focus();
 }
 
-async function onSubmit(e) {
-  e.preventDefault();
-  hideNotice(els.notice);
-  const v = validate();
-  if (!v) return;
-  const quiz = quizzes.find((q) => q.id === v.quizId);
-  const attemptId = makeAttemptId(v.quizId, v.grade, v.section, v.roll);
+function readProfileForm() {
+  const name = normalizeName($("fullName").value);
+  const roll = normalizeRoll($("rollNo").value);
+  const errors = {
+    fullName: !name ? "Please enter your full name." : name.length < 2 ? "Name is too short." : "",
+    rollNo: !$("rollNo").value.trim() ? "Please enter your roll number." : roll === null ? "Roll number must be digits only, for example 12." : "",
+    grade: !$("grade").value ? "Please choose your grade." : "",
+    section: !$("section").value ? "Please choose your section." : ""
+  };
+  FIELDS.forEach((id) => setFieldError(id, errors[id]));
+  const firstBad = FIELDS.find((id) => errors[id]);
+  if (firstBad) { $(firstBad).focus(); return null; }
+  return { name, roll, grade: $("grade").value, section: $("section").value };
+}
 
-  els.startBtn.disabled = true;
-  els.startBtn.textContent = "Checking…";
+async function onSaveProfile(e) {
+  e.preventDefault();
+  const p = readProfileForm();
+  if (!p) return;
+  profile = p;
+  storage.set(PROFILE_KEY, profile);
+  await showHome();
+}
+
+/** A saved profile is only valid if its grade and section still exist. */
+function profileIsValid(p) {
+  return p && p.name && p.roll && settings.grades.includes(p.grade) && sectionsFor(settings, p.grade).includes(p.section);
+}
+
+// --------------------------------------------------------------- quiz list
+
+async function showHome() {
+  $("profileCard").hidden = true;
+  $("homeView").hidden = false;
+  $("profileName").textContent = profile.name;
+  $("profileMeta").textContent = `Roll no. ${profile.roll} · Grade ${profile.grade} · Section ${profile.section}`;
+  $("quizList").innerHTML = '<div class="loading"><span class="spinner"></span> Loading quizzes…</div>';
+  $("progressText").textContent = "";
   try {
-    const result = await checkAttempt(attemptId);
-    if (result.state === "taken") {
-      showNotice(els.notice, `A quiz for roll number ${v.roll} (Grade ${v.grade}, Section ${v.section}) has already been started on another device. If this is a mistake, please tell your teacher.`, "error");
-      return;
-    }
-    if (result.state === "mine" && result.attempt.status === "submitted") {
-      showNotice(els.notice, "You have already submitted this quiz. You cannot take it again. Ask your teacher if you think this is a mistake.", "warning");
-      return;
-    }
-    if (result.state === "mine") {
-      // Same browser started this attempt earlier: continue it.
-      storage.set(ACTIVE_KEY, { attemptId, quizId: v.quizId, quizTitle: quiz.title, studentName: result.attempt.studentName });
-      location.href = "quiz.html";
-      return;
-    }
-    pendingStart = { attemptId, quiz, student: v };
-    els.confirmDetails.innerHTML = [
-      ["Name", v.name], ["Roll number", v.roll], ["Grade", v.grade], ["Section", v.section], ["Quiz", quiz.title]
-    ].map(([k, val]) => `<dt>${k}</dt><dd>${escapeHtml(val)}</dd>`).join("");
-    els.confirmModal.hidden = false;
-    els.confirmStart.focus();
+    quizzes = await loadActiveQuizzes(profile.grade);
+    quizzes.sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { numeric: true }));
+    // One small read per quiz to show its status for this student.
+    const results = await Promise.all(quizzes.map((q) =>
+      checkAttempt(makeAttemptId(q.id, profile.grade, profile.section, profile.roll)).catch(() => ({ state: "unknown" }))));
+    statuses = new Map(quizzes.map((q, i) => [q.id, results[i]]));
+    renderQuizList();
   } catch (err) {
-    showNotice(els.notice, friendlyError(err), "error");
-  } finally {
-    els.startBtn.disabled = false;
-    els.startBtn.textContent = "Start quiz";
+    console.error(err);
+    $("quizList").innerHTML = "";
+    showNotice($("notice"), `Could not load quizzes. ${friendlyError(err)}`, "error");
   }
+}
+
+function statusOf(quiz) {
+  const s = statuses.get(quiz.id) || { state: "unknown" };
+  if (s.state === "mine" && s.attempt.status === "submitted") return { key: "done", label: "Completed", badge: "badge-success", when: s.attempt.submittedAt };
+  if (s.state === "mine") return { key: "progress", label: `In progress (${s.attempt.answeredCount || 0}/${s.attempt.questionCount})`, badge: "badge-warning" };
+  if (s.state === "taken") return { key: "taken", label: "Started on another device", badge: "badge-danger" };
+  if (s.state === "none") return { key: "new", label: "Not started", badge: "" };
+  return { key: "unknown", label: "Status unavailable", badge: "" };
+}
+
+function renderQuizList() {
+  if (!quizzes.length) {
+    $("quizList").innerHTML = `<div class="card empty">There are no quizzes for Grade ${escapeHtml(profile.grade)} right now. Please wait for your teacher to open one, then refresh this page.</div>`;
+    return;
+  }
+  const done = quizzes.filter((q) => statusOf(q).key === "done").length;
+  $("progressText").textContent = `${done} of ${pluralize(quizzes.length, "quiz", "quizzes")} completed`;
+  $("quizList").innerHTML = quizzes.map((q) => {
+    const st = statusOf(q);
+    const lessonInfo = q.merged && Array.isArray(q.lessons) && q.lessons.length > 1
+      ? `${q.lessons.length} lessons: ${q.lessons.map((l) => l.title).join(", ")}`
+      : (q.subject || q.description || "");
+    let action;
+    if (st.key === "done") action = `<span class="small muted">Submitted ${escapeHtml(formatDateTime(st.when))}</span>`;
+    else if (st.key === "taken") action = `<span class="small muted">Ask your teacher for help</span>`;
+    else action = `<button type="button" class="btn ${st.key === "progress" ? "btn-success" : "btn-primary"}" data-start="${escapeHtml(q.id)}">${st.key === "progress" ? "Continue" : "Start"}</button>`;
+    return `
+      <article class="quiz-item card${st.key === "done" ? " is-done" : ""}">
+        <div class="quiz-item-main">
+          <h2 class="quiz-item-title">${escapeHtml(q.title)}</h2>
+          <div class="quiz-item-meta">
+            <span>${q.grade ? `Grade ${escapeHtml(q.grade)}` : "All grades"}</span>
+            <span>${pluralize(q.questionCount || 0, "question")}</span>
+            <span>${pluralize(q.totalMarks || 0, "mark")}</span>
+          </div>
+          ${lessonInfo ? `<div class="small muted">${escapeHtml(lessonInfo)}</div>` : ""}
+        </div>
+        <div class="quiz-item-side">
+          <span class="badge ${st.badge}">${escapeHtml(st.label)}</span>
+          ${action}
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function onQuizListClick(e) {
+  const btn = e.target.closest("[data-start]");
+  if (!btn) return;
+  const quiz = quizzes.find((q) => q.id === btn.dataset.start);
+  if (!quiz) return;
+  const attemptId = makeAttemptId(quiz.id, profile.grade, profile.section, profile.roll);
+  if (statusOf(quiz).key === "progress") {
+    storage.set(ACTIVE_KEY, { attemptId, quizId: quiz.id, quizTitle: quiz.title, studentName: profile.name });
+    location.href = "quiz.html";
+    return;
+  }
+  pendingStart = quiz;
+  $("confirmDetails").innerHTML = [
+    ["Quiz", quiz.title], ["Questions", quiz.questionCount], ["Name", profile.name],
+    ["Roll number", profile.roll], ["Grade", profile.grade], ["Section", profile.section]
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join("");
+  $("confirmModal").hidden = false;
+  $("confirmStart").focus();
 }
 
 function confirmStart() {
   if (!pendingStart) return;
-  const { quiz, student } = pendingStart;
   storage.set(PENDING_KEY, {
-    quizId: quiz.id,
-    student: { name: student.name, roll: student.roll, grade: student.grade, section: student.section }
+    quizId: pendingStart.id,
+    student: { name: profile.name, roll: profile.roll, grade: profile.grade, section: profile.section }
   });
   storage.remove(ACTIVE_KEY);
   location.href = "quiz.html";
 }
 
-async function showResumeIfAny() {
-  const active = storage.get(ACTIVE_KEY);
-  if (!active?.attemptId) return false;
-  try {
-    const result = await checkAttempt(active.attemptId);
-    if (result.state === "mine" && result.attempt.status === "in_progress") {
-      els.resumeText.textContent = `${result.attempt.studentName}, you have an unfinished quiz: "${result.attempt.quizTitle}". Your answers have been saved.`;
-      els.resumeCard.hidden = false;
-      return true;
-    }
-  } catch {
-    // Offline: still offer to continue; the quiz page keeps a local copy.
-    els.resumeText.textContent = `${active.studentName || "You"} have an unfinished quiz: "${active.quizTitle || ""}".`;
-    els.resumeCard.hidden = false;
-    return true;
-  }
-  storage.remove(ACTIVE_KEY);
-  return false;
-}
+// --------------------------------------------------------------------- init
 
 async function init() {
   try {
     await ensureStudentAuth();
-    const [settings, list] = await Promise.all([loadSettings(), loadActiveQuizzes()]);
-    quizzes = list;
-    els.loading.hidden = true;
-
-    if (await showResumeIfAny()) return;
-
-    fillSelect(els.grade, settings.grades.map((g) => ({ value: g, label: `Grade ${g}` })), "Choose grade");
-    fillSelect(els.section, settings.sections.map((s) => ({ value: s, label: `Section ${s}` })), "Choose section");
-    if (settings.grades.length === 1) els.grade.value = settings.grades[0];
-    updateQuizOptions();
-    els.startCard.hidden = false;
-    if (!quizzes.length) {
-      showNotice(els.notice, "No quiz is open right now. Please wait for your teacher to open one, then refresh this page.", "info");
-      els.startBtn.disabled = true;
+    settings = await loadSettings();
+    $("loading").hidden = true;
+    if (profileIsValid(profile)) await showHome();
+    else {
+      if (profile) showNotice($("notice"), "Your grade or section has changed in the school settings. Please check your details.", "warning");
+      const keep = profile;
+      profile = keep && keep.name ? keep : null;
+      showProfileForm(!!profile);
+      if (profile) $("cancelProfileBtn").hidden = true;
     }
   } catch (err) {
-    els.loading.hidden = true;
-    showNotice(els.notice, `Could not load the quiz. ${friendlyError(err)}`, "error");
+    $("loading").hidden = true;
+    showNotice($("notice"), `Could not load the quiz site. ${friendlyError(err)}`, "error");
     console.error(err);
   }
 }
 
-els.form.addEventListener("submit", onSubmit);
-els.grade.addEventListener("change", updateQuizOptions);
-els.confirmBack.addEventListener("click", () => { els.confirmModal.hidden = true; pendingStart = null; });
-els.confirmStart.addEventListener("click", confirmStart);
-els.notMeBtn.addEventListener("click", () => {
+$("profileForm").addEventListener("submit", onSaveProfile);
+$("grade").addEventListener("change", () => updateSectionOptions());
+$("cancelProfileBtn").addEventListener("click", () => showHome());
+$("editProfileBtn").addEventListener("click", () => showProfileForm(true));
+$("switchStudentBtn").addEventListener("click", () => {
+  storage.remove(PROFILE_KEY);
   storage.remove(ACTIVE_KEY);
-  els.resumeCard.hidden = true;
-  location.reload();
+  storage.remove(PENDING_KEY);
+  profile = null;
+  showProfileForm(false);
 });
-["fullName", "rollNo", "grade", "section", "quizSelect"].forEach((id) =>
-  $(id).addEventListener("input", () => setFieldError(id, "")));
+$("quizList").addEventListener("click", onQuizListClick);
+$("confirmBack").addEventListener("click", () => { $("confirmModal").hidden = true; pendingStart = null; });
+$("confirmStart").addEventListener("click", confirmStart);
+FIELDS.forEach((id) => $(id).addEventListener("input", () => setFieldError(id, "")));
 
 init();

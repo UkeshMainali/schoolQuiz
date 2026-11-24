@@ -1,37 +1,67 @@
 // Small shared helpers used by both the student and teacher pages.
 
 import { db, doc, getDoc } from "./firebase.js";
+import "./controls.js"; // styled dropdowns and date pickers on every page
 
 export const DEFAULT_SETTINGS = {
   grades: ["6"],
-  sections: ["A", "B", "C", "D"],
+  // Sections are stored per grade: { "6": ["A", "B"], "7": ["Manaslu"] }.
+  sectionsByGrade: { "6": ["A", "B", "C", "D"] },
   passPercent: 40,
   // Optional expected class sizes, e.g. { "6-A": 35 }, used to show how many
   // students have not submitted yet.
   classSizes: {}
 };
 
-/** Reads settings/school once and merges it with the defaults. */
+/** Grade and section names: letters, numbers, spaces and dashes. */
+export const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$/;
+
+/**
+ * Reads settings/school once and merges it with the defaults.
+ * Older settings had one "sections" list shared by every grade; those are
+ * read as the sections of each grade, so nothing needs migrating.
+ */
 export async function loadSettings() {
+  let data = {};
   try {
     const snap = await getDoc(doc(db, "settings", "school"));
-    const data = snap.exists() ? snap.data() : {};
-    return {
-      ...DEFAULT_SETTINGS,
-      ...data,
-      grades: cleanList(data.grades, DEFAULT_SETTINGS.grades),
-      sections: cleanList(data.sections, DEFAULT_SETTINGS.sections),
-      classSizes: data.classSizes && typeof data.classSizes === "object" ? data.classSizes : {}
-    };
+    data = snap.exists() ? snap.data() : {};
   } catch (err) {
     console.warn("Could not load settings, using defaults", err);
-    return { ...DEFAULT_SETTINGS };
   }
+  return normalizeSettings(data);
+}
+
+export function normalizeSettings(data = {}) {
+  const grades = cleanList(data.grades, DEFAULT_SETTINGS.grades);
+  const legacy = cleanList(data.sections, null);
+  const sectionsByGrade = {};
+  grades.forEach((g) => {
+    const own = data.sectionsByGrade && data.sectionsByGrade[g];
+    sectionsByGrade[g] = cleanList(own, null) || legacy || DEFAULT_SETTINGS.sectionsByGrade[g] || ["A"];
+  });
+  const pass = Number(data.passPercent);
+  return {
+    grades,
+    sectionsByGrade,
+    passPercent: pass >= 1 && pass <= 100 ? pass : DEFAULT_SETTINGS.passPercent,
+    classSizes: data.classSizes && typeof data.classSizes === "object" ? data.classSizes : {}
+  };
+}
+
+/** The sections of one grade (empty list for an unknown grade). */
+export function sectionsFor(settings, grade) {
+  return (settings.sectionsByGrade && settings.sectionsByGrade[grade]) || [];
+}
+
+/** Every section name used by any grade. */
+export function allSections(settings) {
+  return [...new Set(Object.values(settings.sectionsByGrade || {}).flat())];
 }
 
 function cleanList(value, fallback) {
   if (!Array.isArray(value)) return fallback;
-  const list = value.map((v) => String(v).trim()).filter(Boolean);
+  const list = [...new Set(value.map((v) => String(v).trim()).filter(Boolean))];
   return list.length ? list : fallback;
 }
 
@@ -131,14 +161,18 @@ export function withTimeout(promise, ms, message = "timeout") {
 export function toCsv(rows) {
   return rows
     .map((row) => row.map((cell) => {
-      const s = String(cell ?? "");
+      if (typeof cell === "number") return String(cell);
+      let s = String(cell ?? "");
+      // Text starting with = + - @ would run as a formula in Excel or Sheets.
+      if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
       return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }).join(","))
     .join("\r\n");
 }
 
 export function downloadFile(filename, content, type = "text/csv;charset=utf-8") {
-  const blob = new Blob(["﻿", content], { type });
+  // The byte-order mark helps Excel read CSV as UTF-8; JSON files go without it.
+  const blob = new Blob(type.startsWith("text/csv") ? ["\ufeff", content] : [content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -152,6 +186,7 @@ export function downloadFile(filename, content, type = "text/csv;charset=utf-8")
 // localStorage keys used by the student pages.
 export const ACTIVE_KEY = "cq_active";   // { attemptId, quizId, quizTitle, studentName }
 export const PENDING_KEY = "cq_pending"; // { quizId, student } before the attempt exists
+export const PROFILE_KEY = "cq_profile"; // remembered student details { name, roll, grade, section }
 export const progressKey = (attemptId) => `cq_progress_${attemptId}`;
 
 /** localStorage wrapper that never throws (private mode, full storage). */
@@ -168,29 +203,83 @@ export const storage = {
 };
 
 /**
- * Promise-based confirmation using the page's #confirmModal markup
- * (title #confirmTitle, text #confirmText, buttons #confirmOk / #confirmCancel).
+ * Promise-based confirmation dialog, created on demand (no markup needed).
+ *   check:   optional sentence the user must tick before OK is enabled
+ *   option:  optional { label, checked } checkbox; its value is returned
+ * Resolves with false (cancelled) or { ok: true, option: boolean }.
  */
-export function confirmDialog({ title, text, okText = "OK", danger = false }) {
-  const modal = document.getElementById("confirmModal");
-  const ok = document.getElementById("confirmOk");
-  const cancel = document.getElementById("confirmCancel");
-  document.getElementById("confirmTitle").textContent = title;
-  document.getElementById("confirmText").textContent = text;
+export function confirmDialog({ title, text, okText = "OK", danger = false, check = "", option = null }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cdTitle">
+      <h2 id="cdTitle"></h2>
+      <p class="cd-text"></p>
+      ${option ? '<label class="check"><input type="checkbox" class="cd-option"> <span></span></label>' : ""}
+      ${check ? '<label class="check cd-check-label"><input type="checkbox" class="cd-check"> <span></span></label>' : ""}
+      <div class="actions">
+        <button type="button" class="btn cd-cancel">Cancel</button>
+        <button type="button" class="btn ${danger ? "btn-danger-solid" : "btn-primary"} cd-ok"></button>
+      </div>
+    </div>`;
+  backdrop.querySelector("#cdTitle").textContent = title;
+  backdrop.querySelector(".cd-text").textContent = text;
+  const ok = backdrop.querySelector(".cd-ok");
   ok.textContent = okText;
-  ok.className = `btn ${danger ? "btn-danger" : "btn-primary"}`;
-  modal.hidden = false;
-  ok.focus();
+  if (option) {
+    backdrop.querySelector(".cd-option + span").textContent = option.label;
+    backdrop.querySelector(".cd-option").checked = !!option.checked;
+  }
+  if (check) {
+    backdrop.querySelector(".cd-check + span").textContent = check;
+    ok.disabled = true;
+    backdrop.querySelector(".cd-check").addEventListener("change", (e) => { ok.disabled = !e.target.checked; });
+  }
+  document.body.appendChild(backdrop);
+  (check ? backdrop.querySelector(".cd-check") : ok).focus();
   return new Promise((resolve) => {
-    const done = (value) => {
-      modal.hidden = true;
-      ok.removeEventListener("click", onOk);
-      cancel.removeEventListener("click", onCancel);
-      resolve(value);
-    };
-    const onOk = () => done(true);
-    const onCancel = () => done(false);
-    ok.addEventListener("click", onOk);
-    cancel.addEventListener("click", onCancel);
+    const done = (value) => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(value); };
+    const onKey = (e) => { if (e.key === "Escape") done(false); };
+    document.addEventListener("keydown", onKey);
+    backdrop.querySelector(".cd-cancel").addEventListener("click", () => done(false));
+    ok.addEventListener("click", () => done({ ok: true, option: option ? backdrop.querySelector(".cd-option").checked : false }));
   });
+}
+
+/** Runs async work over items in chunks, reporting progress. */
+export async function inChunks(items, size, fn, onProgress) {
+  let done = 0;
+  for (let i = 0; i < items.length; i += size) {
+    const chunk = items.slice(i, i + size);
+    await fn(chunk);
+    done += chunk.length;
+    onProgress?.(done, items.length);
+  }
+  return done;
+}
+
+export function pluralize(n, word, plural = `${word}s`) {
+  return `${n} ${n === 1 ? word : plural}`;
+}
+
+/** Link that opens one student's history (dashboard "Student history" tab). */
+export const historyLink = (grade, section, roll) =>
+  `dashboard.html#history=${[grade, section, roll].map(encodeURIComponent).join("|")}`;
+
+// Dropdown menus (details.menu) open to the left by default; flip one that
+// would run off the screen edge (narrow phones, menus near the left side).
+if (typeof document !== "undefined") {
+  document.addEventListener("toggle", (e) => {
+    const d = e.target;
+    if (!d.matches?.("details.menu") || !d.open) return;
+    const list = d.querySelector(".menu-list");
+    if (!list) return;
+    list.style.left = ""; list.style.right = "";
+    const r = list.getBoundingClientRect();
+    if (r.left < 8) {
+      list.style.left = "0"; list.style.right = "auto";
+      const over = list.getBoundingClientRect().right - (document.documentElement.clientWidth - 8);
+      if (over > 0) list.style.left = `${-over}px`;
+    }
+  }, true);
 }

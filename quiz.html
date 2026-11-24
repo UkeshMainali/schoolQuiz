@@ -8,6 +8,11 @@
   <link rel="stylesheet" href="css/quiz.css">
 </head>
 <body class="quiz-page no-print">
+  <header class="site-header">
+    <div class="inner">
+      <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">CQ</span>Classroom Quiz</a>
+    </div>
+  </header>
   <main class="container quiz-container">
     <div id="loading" class="loading"><span class="spinner"></span> Loading quiz…</div>
     <div id="notice" class="notice" hidden></div>
@@ -29,9 +34,9 @@
       <h2>Before you begin</h2>
       <ul class="rules-list">
         <li>Questions appear one at a time. Use <b>Next</b> and <b>Previous</b> to move between them.</li>
-        <li>You can change your answers until you press <b>Submit</b>.</li>
+        <li>You must answer <b>every question</b> before you can submit. You can change your answers until then.</li>
         <li>Your answers are saved as you go, so a refresh will not lose them.</li>
-        <li>Stay on this page. Leaving the quiz or switching tabs is recorded and shown to your teacher.</li>
+        <li>Stay on this page. If you switch to another tab or app, the question is hidden, and this is recorded and shown to your teacher.</li>
         <li>The quiz opens in fullscreen when your device allows it.</li>
       </ul>
       <button type="button" id="beginBtn" class="btn btn-primary btn-block">Begin quiz</button>
@@ -58,6 +63,7 @@
           <span class="badge badge-info" id="questionType"></span>
           <span class="badge" id="questionMarks"></span>
         </div>
+        <div class="question-lesson small muted" id="questionLesson" hidden></div>
         <h2 class="question-text" id="questionText"></h2>
         <img id="questionImage" class="question-image" alt="" hidden>
         <div id="answerArea" class="answer-area"></div>
@@ -84,7 +90,8 @@
       <div id="reviewGrid" class="navigator-grid review-grid"></div>
       <div class="stack-actions">
         <button type="button" id="backToQuizBtn" class="btn">← Back to questions</button>
-        <button type="button" id="submitBtn" class="btn btn-success">Submit quiz</button>
+        <button type="button" id="firstUnansweredBtn" class="btn btn-primary" hidden>Go to first unanswered question</button>
+        <button type="button" id="submitBtn" class="btn btn-success" disabled>Submit quiz</button>
       </div>
     </section>
 
@@ -93,8 +100,8 @@
       <div class="done-icon" aria-hidden="true">✓</div>
       <h1>Quiz submitted</h1>
       <p id="doneText"></p>
-      <p class="muted">Your teacher will check your answers. You may close this page now.</p>
-      <a href="index.html" class="btn">Back to start</a>
+      <p class="muted">Your teacher will check your answers.</p>
+      <a href="index.html" class="btn btn-primary">Back to my quizzes</a>
     </section>
   </main>
 
@@ -119,6 +126,14 @@
       <div class="actions">
         <button type="button" class="btn btn-primary" id="leaveOk">Continue quiz</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Covers the question while the quiz window is not active -->
+  <div id="obscureCover" class="obscure-cover" hidden>
+    <div>
+      <b>Quiz hidden</b>
+      <p>Click or tap here to continue your quiz.</p>
     </div>
   </div>
 

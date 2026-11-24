@@ -1,13 +1,4 @@
 {
-  "indexes": [
-    {
-      "collectionGroup": "attempts",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "quizId", "order": "ASCENDING" },
-        { "fieldPath": "startedAt", "order": "DESCENDING" }
-      ]
-    }
-  ],
+  "indexes": [],
   "fieldOverrides": []
 }

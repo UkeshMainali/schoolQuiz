@@ -1,35 +1,26 @@
-// Question-bank importer.
+// Question-bank importer (runs only in the teacher dashboard).
 //
-// Reads question-bank JSON files in this format (one lesson per file):
-//
-// {
-//   "metadata": { "id": "grade-6-lesson-1", "grade": 6, "subject": "...",
-//                 "lesson": 1, "title": "...", "version": 1 },
-//   "questions": [
-//     { "id": "L1-Q001", "type": "mcq", "question": "...", "marks": 2,
-//       "options": [{ "id": "A", "text": "..." }, ...],
-//       "correctOptionId": "B", "explanation": "..." },
-//     { "id": "L1-Q002", "type": "true_false", ... same as mcq ... },
-//     { "id": "L1-Q003", "type": "short_answer", "question": "...", "marks": 2,
-//       "acceptedAnswers": ["Central Processing Unit"],
-//       "caseSensitive": false, "trimWhitespace": true, "explanation": "..." }
-//   ]
-// }
-//
-// A file may also hold several lessons:
-//   { "title": "...", "lessons": [ { "lessonId": "lesson-1", "title": "...",
+// Supported JSON (schema 2.0, recommended):
+//   { "schemaVersion": "2.0", "grade": 7, "title": "...", "subject": "...",
+//     "lessons": [ { "lessonId": "lesson-1", "title": "...",
 //       "questions": [ { "id": "q01", "type": "multiple_choice", "question": "...",
 //         "marks": 1, "options": [{ "id": "a", "text": "..." }, ...],
-//         "correctAnswer": "a" } ] } ] }
-// or an array of lesson objects, or { "quizzes": [...] }.
-// Each lesson becomes its own quiz. Lessons with no questions are skipped.
+//         "correctAnswer": "a", "explanation": "..." } ] } ] }
+// Also accepted (older files keep working):
+//   - the same without "grade" (the teacher picks the grade when importing)
+//   - { "metadata": { "id", "grade", "title", ... }, "questions": [...] }
+//     with "correctOptionId" (schema 1)
+//   - an array of lesson objects, or { "quizzes": [...] }
+// Question types: multiple_choice / mcq, true_false, short_answer
+// (short answers use "acceptedAnswers", "caseSensitive", "trimWhitespace").
 //
-// Each lesson becomes two Firestore documents:
-//   quizzes/{metadata.id}     public: question text + options, NO answers
-//   answerKeys/{metadata.id}  teacher only: correct answers + explanations
-//
-// The JSON is parsed in the teacher's browser (dashboard -> Question banks),
-// never on student pages, so the file with answers never reaches students.
+// The file is parsed into LESSONS. The teacher then turns lessons into
+// QUIZZES: one quiz per lesson, or several lessons merged into one quiz.
+// Each quiz is stored as three documents:
+//   quizzes/{quizId}      public list information (title, grade, counts)
+//   quizContent/{quizId}  public questions and options, NO answers
+//   answerKeys/{quizId}   correct answers and explanations (teacher only)
+// The JSON never leaves the teacher's browser, so students never receive it.
 
 export const QUESTION_TYPES = ["mcq", "true_false", "short_answer"];
 const TYPE_ALIASES = {
@@ -132,48 +123,52 @@ function parseQuestion(q, index, lessonLabel, errors, warnings) {
 }
 
 /**
- * Parses question-bank JSON (string or already-parsed object).
- * Returns { quizzes: [...], errors: [...], warnings: [...] }.
+ * Parses question-bank JSON (string or object) into lessons.
+ * Returns { lessons: [...], errors: [...], warnings: [...] }.
  * A lesson with any invalid question is rejected as a whole, so a quiz is
- * never published with questions silently missing.
+ * never published with questions silently missing. Lessons without questions
+ * are skipped with a warning.
  */
 export function parseQuestionBank(input, sourceName = "") {
   const errors = [];
   const warnings = [];
+  const fileLabel = sourceName || "The file";
   let data = input;
   if (typeof input === "string") {
     try { data = JSON.parse(input); }
-    catch (e) { return { quizzes: [], errors: [`${sourceName || "The file"} is not valid JSON (${e.message}).`], warnings }; }
+    catch (e) { return { lessons: [], errors: [`${fileLabel} is not valid JSON (${e.message}).`], warnings }; }
+  }
+  const rawLessons = locateLessons(data);
+  if (!rawLessons.length) return { lessons: [], errors: [`${fileLabel} does not contain any lessons.`], warnings };
+
+  const file = isObject(data) ? data : {};
+  const fileGrade = str(file.grade ?? file.metadata?.grade);
+  const schemaVersion = str(file.schemaVersion) || (file.metadata ? "1" : "");
+  if (schemaVersion && !/^[12](\.\d+)?$/.test(schemaVersion)) {
+    warnings.push(`${fileLabel}: schemaVersion "${schemaVersion}" is newer than this app knows; importing it as 2.0.`);
   }
 
-  const lessons = locateLessons(data);
-  if (!lessons.length) {
-    return { quizzes: [], errors: [`${sourceName || "The file"} does not contain any lessons.`], warnings };
-  }
-
-  const quizzes = [];
-  const seenQuizIds = new Set();
-  lessons.forEach((lesson, li) => {
+  const lessons = [];
+  const seenIds = new Set();
+  rawLessons.forEach((lesson, li) => {
     const meta = isObject(lesson?.metadata) ? lesson.metadata : (isObject(lesson) ? lesson : {});
     const title = str(meta.title) || `Lesson ${str(meta.lesson) || li + 1}`;
     const lessonLabel = `"${title}"`;
-    let quizId = str(meta.id) || str(meta.lessonId) || slugify(title);
-    if (!ID_PATTERN.test(quizId)) {
-      const fixed = slugify(quizId);
-      warnings.push(`${lessonLabel}: id "${quizId}" was changed to "${fixed}".`);
-      quizId = fixed;
+    let lessonId = str(meta.lessonId) || str(meta.id) || slugify(title);
+    if (!ID_PATTERN.test(lessonId)) {
+      const fixed = slugify(lessonId);
+      warnings.push(`${lessonLabel}: id "${lessonId}" was changed to "${fixed}".`);
+      lessonId = fixed;
     }
-    if (!quizId) { errors.push(`${lessonLabel}: "metadata.id" is missing.`); return; }
-    if (seenQuizIds.has(quizId)) { errors.push(`${lessonLabel}: id "${quizId}" is used by two lessons in this file.`); return; }
-    seenQuizIds.add(quizId);
+    if (!lessonId) { errors.push(`${lessonLabel}: "lessonId" is missing.`); return; }
+    if (seenIds.has(lessonId)) { errors.push(`${lessonLabel}: lesson id "${lessonId}" is used twice in ${fileLabel}.`); return; }
+    seenIds.add(lessonId);
 
     const rawQuestions = Array.isArray(lesson?.questions) ? lesson.questions : null;
     if (!rawQuestions || !rawQuestions.length) {
-      // Not an error: a lesson may be listed before its questions are written.
       warnings.push(`${lessonLabel} has no questions yet, so it was skipped. Import it again once questions are added.`);
       return;
     }
-
     const before = errors.length;
     const questions = [];
     const seenQ = new Set();
@@ -182,49 +177,111 @@ export function parseQuestionBank(input, sourceName = "") {
       if (!parsed) return;
       if (seenQ.has(parsed.id)) { errors.push(`${lessonLabel}: question id "${parsed.id}" is used twice.`); return; }
       seenQ.add(parsed.id);
-      questions.push(parsed);
+      questions.push({ ...parsed, lessonId, lessonTitle: title });
     });
     if (errors.length > before) {
       errors.push(`${lessonLabel} was not imported. Fix the problems above and try again.`);
       return;
     }
-
-    const passRaw = Number(meta.passPercent);
-    quizzes.push({
-      quizId,
+    const passRaw = Number(meta.passPercent ?? file.passPercent);
+    lessons.push({
+      key: `${sourceName}::${lessonId}`,
+      lessonId,
       title,
-      subject: str(meta.subject),
-      lesson: str(meta.lesson),
-      grade: str(meta.grade),
-      version: str(meta.version) || "1",
+      grade: str(meta.grade) || fileGrade,
+      subject: str(meta.subject ?? file.subject),
       description: str(meta.description),
+      version: str(meta.version ?? file.version) || "1",
       passPercent: Number.isFinite(passRaw) && passRaw > 0 && passRaw <= 100 ? passRaw : null,
       questions,
-      source: sourceName
+      source: sourceName,
+      fileTitle: str(file.title)
     });
   });
-
-  return { quizzes, errors, warnings };
+  return { lessons, errors, warnings };
 }
 
-/** Public document: everything students need, with no answers. */
-export function toPublicQuiz(quiz) {
+/** Proposed document id for a quiz: grade prefix + lesson id or title. */
+export function proposeQuizId(grade, base) {
+  const g = slugify(grade);
+  return `${g ? `g${g}-` : ""}${slugify(base) || "quiz"}`.slice(0, 80);
+}
+
+/**
+ * Builds one quiz from one or more lessons.
+ *   merge=false: lessons.length must be 1; question ids stay as in the file.
+ *   merge=true:  question ids become "<lessonId>-<questionId>" so they stay
+ *                unique; lesson id and title are kept on every question.
+ * Duplicate questions (same lesson+id, or identical text) are skipped.
+ * Returns { quiz, warnings }.
+ */
+export function buildQuiz(lessons, { title, grade, merge = false } = {}) {
+  const warnings = [];
+  const questions = [];
+  const seenKeys = new Set();
+  const seenText = new Map();
+  lessons.forEach((lesson) => {
+    lesson.questions.forEach((q) => {
+      const key = `${lesson.lessonId}/${q.id}`;
+      if (seenKeys.has(key)) { warnings.push(`Skipped duplicate question ${q.id} from ${lesson.title}.`); return; }
+      const textKey = q.text.toLowerCase().replace(/\s+/g, " ");
+      if (merge && seenText.has(textKey)) {
+        warnings.push(`Skipped "${q.text.slice(0, 60)}" from ${lesson.title}: the same question is already in ${seenText.get(textKey)}.`);
+        return;
+      }
+      seenKeys.add(key);
+      seenText.set(textKey, lesson.title);
+      questions.push({ ...q, id: merge ? `${lesson.lessonId}-${q.id}`.slice(0, 80) : q.id, sourceQuestionId: q.id });
+    });
+  });
+  const first = lessons[0];
+  const passValues = lessons.map((l) => l.passPercent).filter(Boolean);
+  const quizTitle = str(title) || (merge ? lessons.map((l) => l.title).join(" + ") : first.title);
+  return {
+    quiz: {
+      quizId: merge ? proposeQuizId(grade, quizTitle) : proposeQuizId(grade, first.lessonId),
+      title: quizTitle,
+      grade: str(grade),
+      subject: first.subject,
+      description: merge ? `Merged from ${lessons.length} lessons` : first.description,
+      version: first.version,
+      passPercent: passValues.length ? Math.max(...passValues) : null,
+      merged: !!merge && lessons.length > 1,
+      lessons: lessons.map((l) => ({ lessonId: l.lessonId, title: l.title, questionCount: l.questions.length })),
+      questions,
+      source: [...new Set(lessons.map((l) => l.source))].join(", ")
+    },
+    warnings
+  };
+}
+
+/** Public list document (quizzes/{id}): no questions, no answers. */
+export function toQuizMeta(quiz) {
   return {
     title: quiz.title,
-    subject: quiz.subject,
-    lesson: quiz.lesson,
     grade: quiz.grade,
-    description: quiz.description,
-    version: quiz.version,
+    subject: quiz.subject || "",
+    description: quiz.description || "",
+    version: quiz.version || "1",
+    merged: !!quiz.merged,
+    lessons: quiz.lessons || [],
     questionCount: quiz.questions.length,
     totalMarks: quiz.questions.reduce((s, q) => s + q.marks, 0),
+    format: 2
+  };
+}
+
+/** Public questions document (quizContent/{id}): no answers. */
+export function toQuizContent(quiz) {
+  return {
     questions: quiz.questions.map((q) => ({
       id: q.id,
       type: q.type,
       text: q.text,
       marks: q.marks,
       ...(q.options ? { options: q.options.map((o) => ({ id: o.id, text: o.text })) } : {}),
-      ...(q.image ? { image: q.image } : {})
+      ...(q.image ? { image: q.image } : {}),
+      ...(q.lessonId ? { lessonId: q.lessonId, lessonTitle: q.lessonTitle } : {})
     }))
   };
 }
@@ -233,16 +290,16 @@ export function toPublicQuiz(quiz) {
 export function toAnswerKey(quiz) {
   return {
     title: quiz.title,
-    version: quiz.version,
-    passPercent: quiz.passPercent,
-    questions: quiz.questions.map((q) => (q.type === "short_answer"
-      ? {
-          id: q.id, type: q.type, text: q.text, marks: q.marks, explanation: q.explanation,
-          acceptedAnswers: q.acceptedAnswers, caseSensitive: q.caseSensitive, trimWhitespace: q.trimWhitespace
-        }
-      : {
-          id: q.id, type: q.type, text: q.text, marks: q.marks, explanation: q.explanation,
-          options: q.options, correctOptionId: q.correctOptionId
-        }))
+    version: quiz.version || "1",
+    passPercent: quiz.passPercent ?? null,
+    questions: quiz.questions.map((q) => {
+      const base = {
+        id: q.id, type: q.type, text: q.text, marks: q.marks, explanation: q.explanation || "",
+        lessonId: q.lessonId || "", lessonTitle: q.lessonTitle || ""
+      };
+      return q.type === "short_answer"
+        ? { ...base, acceptedAnswers: q.acceptedAnswers, caseSensitive: q.caseSensitive, trimWhitespace: q.trimWhitespace }
+        : { ...base, options: q.options, correctOptionId: q.correctOptionId };
+    })
   };
 }

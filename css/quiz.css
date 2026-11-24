@@ -42,7 +42,7 @@
   border: 2px solid var(--border); border-radius: var(--radius);
   background: var(--surface); cursor: pointer; font-size: 1.1rem;
 }
-.option:hover { border-color: var(--border-strong); background: #fafbfc; }
+.option:hover { border-color: var(--border-strong); background: var(--subtle); }
 .option input { position: absolute; opacity: 0; pointer-events: none; }
 .option:focus-within { outline: 2px solid var(--primary); outline-offset: 2px; }
 .option-letter {
@@ -66,8 +66,8 @@
   width: 44px; height: 44px; border-radius: var(--radius-sm); font: inherit; font-weight: 700;
   border: 2px solid var(--border-strong); background: var(--surface); cursor: pointer;
 }
-.nav-num.answered { background: var(--success-soft); border-color: #9fd3b6; color: var(--success); }
-.nav-num.unanswered { background: var(--warning-soft); border-color: #eec17a; color: var(--warning); }
+.nav-num.answered { background: var(--success-soft); border-color: var(--success-line); color: var(--success); }
+.nav-num.unanswered { background: var(--warning-soft); border-color: var(--warning-line); color: var(--warning); }
 .nav-num.current { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .stack-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
@@ -79,7 +79,6 @@
   background: var(--success-soft); color: var(--success); font-size: 2rem; font-weight: 700;
 }
 
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 @media (max-width: 520px) {
   .card, .question-card { padding: 18px; }
@@ -88,3 +87,42 @@
   .details-list { grid-template-columns: 1fr; gap: 2px; }
   .details-list dd { margin-bottom: 6px; }
 }
+
+/* ---- Student homepage ---- */
+.profile-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px 20px; margin-bottom: 20px; }
+.profile-name { font-weight: 700; font-size: 1.1rem; }
+.profile-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.list-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.list-head h1 { margin: 0; font-size: 1.35rem; }
+.quiz-list { display: grid; gap: 10px; }
+.quiz-list .card + .card { margin-top: 0; }
+.quiz-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; }
+.quiz-item.is-done { background: var(--subtle); }
+.quiz-item-title { font-size: 1.05rem; margin: 0 0 4px; }
+.quiz-item { transition: border-color 0.12s, box-shadow 0.12s; }
+.quiz-item:hover { border-color: var(--primary-line); }
+.profile-actions .btn { min-height: var(--control-sm); padding: 0 12px; font-size: 0.85rem; }
+.quiz-item-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); font-size: 0.9rem; margin-bottom: 2px; }
+.quiz-item-side { display: flex; flex-direction: row; align-items: center; gap: 14px; flex-shrink: 0; text-align: right; }
+.form-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+.form-actions .btn-primary { flex: 1 1 220px; }
+.footer-link { margin-top: 32px; }
+@media (max-width: 560px) {
+  .quiz-item { flex-direction: column; align-items: stretch; }
+  .quiz-item-side { align-items: stretch; text-align: left; flex-direction: row; justify-content: space-between; align-items: center; }
+}
+
+/* ---- Screen-capture deterrents ---- */
+.question-lesson { margin-bottom: 4px; }
+.question-card { position: relative; overflow: hidden; }
+.question-card[data-watermark]::after {
+  content: attr(data-watermark);
+  position: absolute; inset: auto 0 10px 0; text-align: center;
+  font-size: 0.8rem; color: rgba(29, 35, 48, 0.12); pointer-events: none; white-space: nowrap;
+}
+body.obscured .question-card, body.obscured .quiz-top, body.obscured .navigator, body.obscured #reviewScreen { visibility: hidden; }
+.obscure-cover {
+  position: fixed; inset: 0; z-index: 90; background: var(--bg);
+  display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; cursor: pointer;
+}
+.obscure-cover b { font-size: 1.2rem; }

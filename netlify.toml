@@ -64,3 +64,7 @@
   for = "/result*"
   [headers.values]
     X-Robots-Tag = "noindex"
+[[headers]]
+  for = "/student*"
+  [headers.values]
+    X-Robots-Tag = "noindex"

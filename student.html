@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Student History</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script>
+    // Student history now lives on the dashboard ("Student history" tab).
+    // Older links (student.html?grade=6&section=A&roll=12) are forwarded there.
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var parts = [p.get("grade"), p.get("section"), p.get("roll")];
+      var hash = parts.every(Boolean) ? "#history=" + parts.map(encodeURIComponent).join("|") : "";
+      if (!hash) try { localStorage.setItem("cq_dash_tab", "history"); } catch (e) {}
+      location.replace("dashboard.html" + hash);
+    })();
+  </script>
+</head>
+<body>
+  <main class="container"><p><a href="dashboard.html">Open the teacher dashboard</a></p></main>
+</body>
+</html>

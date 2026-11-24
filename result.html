@@ -8,11 +8,14 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/dashboard.css">
 </head>
-<body>
+<body class="teacher">
   <header class="site-header">
     <div class="inner">
-      <a class="brand" href="dashboard.html">Classroom Quiz <small>Teacher</small></a>
-      <a href="dashboard.html" class="btn btn-small">← Back to results</a>
+      <div class="brand-wrap">
+        <a class="brand" href="index.html" title="Go to the student homepage"><span class="brand-mark" aria-hidden="true">CQ</span>Classroom Quiz</a>
+        <a class="area-link" href="dashboard.html">Teacher dashboard</a>
+      </div>
+      <a href="dashboard.html" class="btn btn-small" id="backLink">← Back to results</a>
     </div>
   </header>
 
@@ -27,20 +30,16 @@
             <h1 id="studentName"></h1>
             <p class="muted" id="studentMeta"></p>
           </div>
-          <div id="statusBadge"></div>
+          <div id="statusBadge" class="status-stack"></div>
         </div>
         <div class="summary-grid" id="resultCards"></div>
         <dl class="info-grid" id="infoGrid"></dl>
-        <div class="result-actions">
-          <button type="button" id="gradeBtn" class="btn btn-primary btn-small" hidden>Grade now</button>
-          <button type="button" id="printBtn" class="btn btn-small">Print</button>
-          <button type="button" id="retakeBtn" class="btn btn-danger btn-small">Allow retake</button>
-        </div>
+        <div class="result-actions" id="actions"></div>
       </section>
 
       <section class="card" id="answersCard">
         <h2>Answers</h2>
-        <p class="small muted">Shown in the order this student saw the questions. For short answers you can override the automatic marking (for example, a small spelling mistake).</p>
+        <p class="small muted">In the order the student saw them. You can change the marking of short answers.</p>
         <div class="table-wrap">
           <table class="data-table compact">
             <thead><tr><th>#</th><th>Question</th><th>Student's answer</th><th>Correct answer</th><th>Result</th><th class="num">Marks</th></tr></thead>
@@ -55,17 +54,6 @@
       </section>
     </div>
   </main>
-
-  <div id="confirmModal" class="modal-backdrop" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle">
-      <h2 id="confirmTitle"></h2>
-      <p id="confirmText"></p>
-      <div class="actions">
-        <button type="button" class="btn" id="confirmCancel">Cancel</button>
-        <button type="button" class="btn btn-primary" id="confirmOk">OK</button>
-      </div>
-    </div>
-  </div>
 
   <script type="module" src="js/result.js"></script>
 </body>
