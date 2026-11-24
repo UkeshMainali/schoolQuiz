@@ -29,7 +29,20 @@ const EVENT_LABELS = {
   devtools_shortcut: "Pressed a developer-tools shortcut",
   printscreen_key: "Pressed Print Screen",
   screenshot_shortcut: "Pressed a screenshot shortcut",
-  context_menu: "Tried to open the right-click menu"
+  context_menu: "Tried to open the right-click menu",
+  windows_key: "Pressed the Windows key",
+  switch_shortcut: "Pressed Alt+Tab or another switch shortcut",
+  alt_shortcut: "Pressed an Alt shortcut",
+  function_key: "Pressed a function key (F1 to F12)",
+  tab_key: "Pressed Tab",
+  ctrl_shortcut: "Pressed a Ctrl shortcut",
+  shortcut_c: "Tried to copy (Ctrl+C)",
+  shortcut_v: "Tried to paste (Ctrl+V)",
+  shortcut_x: "Tried to cut (Ctrl+X)",
+  shortcut_a: "Tried to select everything (Ctrl+A)",
+  shortcut_p: "Tried to print (Ctrl+P)",
+  shortcut_s: "Tried to save the page (Ctrl+S)",
+  shortcut_u: "Tried to view the page code (Ctrl+U)"
 };
 const REVIEW = {
   pending: '<span class="badge badge-muted">Pending review</span>',

@@ -24,6 +24,7 @@ classroom-quiz/
 ├── dashboard.html        Teacher dashboard (results, student history, analysis, quizzes, archive & backup, settings)
 ├── result.html           One student record (teacher only)
 ├── student.html          Forwards old history links to the dashboard's Student history tab
+├── about.html            About page with the creator credit
 ├── css/
 │   ├── style.css         Shared design + the print/PDF layout
 │   ├── quiz.css          Student pages
@@ -33,6 +34,7 @@ classroom-quiz/
 │   ├── auth.js           Anonymous student sign-in, teacher sign-in and check
 │   ├── utilities.js      Shared helpers (settings, formatting, CSV, dialogs, storage)
 │   ├── controls.js       Styled dropdowns, date pickers and file drop zones used on every page
+│   ├── icons.js          Adds the matching Font Awesome icon to every button and menu item
 │   ├── student.js        index.html: details form, quiz list and statuses
 │   ├── quiz.js           quiz.html: navigation, saving, all-answers-required submit
 │   ├── randomizer.js     Question and option shuffling
@@ -128,7 +130,10 @@ quiz page uses deterrents only:
 | Question hidden ("Quiz paused") when the window loses focus, the tab is hidden, or a screenshot shortcut (Print Screen, Win+Shift+S, Cmd+Shift+3/4/5) is pressed | Deterrent. Shortcut detection happens *after* the key press on most systems, so some screenshots still succeed. It does not stop phone cameras or a second device. |
 | Name and roll number watermark on the question | Deterrent: a leaked picture shows whose screen it was. |
 | Text selection, copy, paste, right-click and printing blocked on the quiz | Deterrent. Easily bypassed by anyone who knows browser developer tools. |
-| Tab switches, fullscreen exits and screenshot-key presses are counted and shown to the teacher | Information, not proof. |
+| Keys locked from the moment the quiz starts until it is submitted: F1 to F12, Esc, Tab, Alt, Home/End, Ctrl/Cmd shortcuts (copy, paste, print, find, new tab, save, developer tools), and Backspace/Delete outside the answer box | Deterrent. Typing in a short-answer box still works (Backspace, Delete, Home/End, Ctrl+A/Z/Y). Before the quiz starts and after it is submitted, every key works normally. |
+| Windows key and Alt+Tab blocked in fullscreen (Keyboard Lock API) | Works only in **Chrome and Edge on a computer**, only in fullscreen and only on HTTPS (Netlify is HTTPS). Esc must then be held down to leave fullscreen. Other browsers ignore it. |
+| Keys a website can never block | Ctrl+Alt+Delete, Fn, and outside fullscreen the Windows key, Win+Shift+S and Alt+Tab go straight to the operating system. The question is hidden as soon as the window loses focus and the switch is recorded. |
+| Tab switches, fullscreen exits, screenshot-key presses and blocked keys are counted and shown to the teacher | Information, not proof. Each kind of blocked key is logged at most once every 5 seconds. |
 
 ## 3. Setup (one time)
 
@@ -463,6 +468,7 @@ real `firestore.rules`, using headless Chromium, on 23 November 2026:
 - **Load:** 40 simultaneous students, 20 questions each: 40/40 submitted, all answers stored, about 3 writes per student.
 - **Phase 2: reports and history (49 checks):** three quizzes with different totals; one student with a low quiz, a high quiz, an earlier attempt and a declined attempt, a second student with two name spellings and an in-progress attempt, and a student with the same name in another section. Checked: 3 groups for 7 attempts; same name in another section kept separate; name spellings merged; overall 71.4% (weighted) and average 57.5% (mean); declined, earlier and in-progress attempts listed but not counted; results print without answers; answer sheets with all 46 questions; long question and multi-line answer printed; individual quiz report with the summary first; summary CSV columns, one row per attempt, quiz title with comma and quotes; detailed CSV, one row per question, multi-line answer with quotes and comma read back exactly, stable IDs; export of a selection; Student history tab: list, search by name and roll, section filter, detail with overall and average, print of one student with answers and of all students; history links, old `student.html` links and the Results row link; no horizontal page scroll at phone and tablet width. The PDFs were checked by eye.
 - **Design overhaul (18 checks), plus every suite above re-run after it:** no browser dropdown or date field is visible; the styled dropdown opens, filters the table, keeps the real field's value and closes with Escape; Clear resets the dropdown and date labels; picking a day in the date picker filters by date; menus close on an outside click; dropping a file on the picker opens the import preview; Analysis switches views; the student's section dropdown works; Show password works. No sideways page scroll on any dashboard tab at phone and tablet width.
+- **Header, icons and key locking (5 checks), plus every suite above re-run after it:** keys work normally before the quiz starts; once it starts F1/F5/F11/F12, Esc, Tab, Alt+Tab, Alt, the Windows key, Home/End, Backspace/Delete and Ctrl+C/F/T/P are blocked; Backspace, Delete, Home/End and Ctrl+Z/A/arrows still work in a text box, and Backspace really deletes typed text; copy/paste, F-keys and Tab stay blocked inside the box. These use simulated key presses in Chromium; the Keyboard Lock behaviour for the real Windows key needs a Windows PC to confirm. No sideways scroll on the homepage or About page at 390px and 360px.
 - **Netlify:** the Phase 2 suite (49 checks) was run again through Netlify's local server (`netlify dev`) with `netlify.toml` after these changes, and all passed. (The version 2 suite passed there in the version 2 round.) `/data/…`, `README.md` and `firestore.rules` return 404.
 
 **Not tested:** the live Firebase project (only the emulators), real phones
@@ -550,4 +556,9 @@ Version 1 links still work: `index.html`, `quiz.html`, `dashboard.html` and
 - **Dashboard layout:** a sidebar groups the pages (Records: Results, Student history, Analysis · Content: Quizzes · Data: Archive & backup, School settings). Each page has a title and a one-line description. On phones and tablets the sidebar becomes a scrollable bar at the top.
 - **No browser-default controls:** every dropdown and date field is a styled control (`js/controls.js`) with keyboard support (arrow keys, Enter, Escape, first-letter search). Checkboxes, radio buttons and file pickers (with drag and drop) are styled too. The real form fields stay in the page, hidden, so nothing else changed.
 - **Less on one screen:** Analysis is split into Overview, Sections, Quizzes, Students and Questions & lessons. School settings puts grades on the left and Add grade, pass mark and Save on the right. The result page keeps Accept, Decline, Print and Student history in view and moves the rest into a More menu.
+- **Teacher login in the header:** the student pages have an About link and a Teacher login button at the top right. On phones About becomes an icon, and on very small phones both do.
+- **Icons:** every button, link button and menu item gets a Font Awesome 6.5.2 icon (loaded from cdnjs) chosen by `js/icons.js` from its label, so new buttons get one automatically. Add `data-icon="name"` to a button to pick an icon, or `data-icon="none"` for no icon.
+- **Typography and spacing:** headings use Plus Jakarta Sans and text uses Inter (Google Fonts), with more space around cards, fields and pages.
+- **Micro-interactions:** buttons lift and press, arrows nudge on hover, menus and dropdowns pop in, dialogs rise in and tab panels fade in. All of it is turned off for people who choose reduced motion on their device.
+- **About page and credit:** `about.html` describes the site and credits the creator with a link to https://www.instagram.com/mainaliukesh.143783333/. The same credit is in the footer of the student pages and on the teacher sign-in page.
 - **Alignment:** every filter has a label above it, so fields and buttons in a row line up; rows that mix text and buttons are centred on one line.

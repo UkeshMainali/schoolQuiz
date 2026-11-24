@@ -45,7 +45,7 @@ export class QuizAdmin {
           <label class="stack-field grow"><span>Search</span><input type="search" data-q="search" placeholder="Quiz title"></label>
           <label class="stack-field"><span>Grade</span><select data-q="grade"></select></label>
           <label class="check inline"><input type="checkbox" data-q="archived"> Show archived</label>
-          <button type="button" class="btn" data-q="refresh"><span class="i-refresh" aria-hidden="true"></span>Refresh</button>
+          <button type="button" class="btn" data-q="refresh">Refresh</button>
         </div>
         <div class="table-wrap">
           <table class="data-table">

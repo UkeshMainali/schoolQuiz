@@ -21,7 +21,7 @@ export class AnalyticsView {
           <label class="stack-field"><span>Quiz</span><select data-f="quiz"></select></label>
           <label class="stack-field date-field"><span>Submitted from</span><input type="date" data-f="from"></label>
           <label class="stack-field date-field"><span>To</span><input type="date" data-f="to"></label>
-          <button type="button" class="btn" data-act="reload"><span class="i-refresh" aria-hidden="true"></span>Refresh</button>
+          <button type="button" class="btn" data-act="reload">Refresh</button>
         </div>
         <p class="small muted" data-info></p>
       </div>

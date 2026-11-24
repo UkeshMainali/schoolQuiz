@@ -122,7 +122,7 @@ export class RecordsView {
         <div class="browse-row" data-row="section"><span class="browse-label">Section</span><div class="chips" data-level="section"></div></div>
         <div class="browse-row"><label class="browse-label" for="${this.source}-quiz">Quiz</label>
           <select id="${this.source}-quiz" class="scope-quiz"></select>
-          <button type="button" class="btn btn-small" data-act="refresh"><span class="i-refresh" aria-hidden="true"></span>Refresh</button>
+          <button type="button" class="btn btn-small" data-act="refresh">Refresh</button>
           <span class="small muted data-info"></span>
         </div>
       </div>

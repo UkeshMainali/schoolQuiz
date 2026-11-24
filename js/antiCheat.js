@@ -14,6 +14,17 @@
 //  - Print Screen cannot be blocked: the browser is told only afterwards. We
 //    record it and overwrite the clipboard (best effort, Chrome/Edge).
 //  - Phones and tablets give web pages no screenshot signal at all.
+//
+// Key locking:
+//  - In fullscreen, Chrome and Edge on a computer let the page "lock" the
+//    keyboard (Keyboard Lock API). The Windows key, Alt+Tab and Esc then
+//    reach the page instead of the system, so we can block them; Esc has to
+//    be held down to leave fullscreen. Other browsers ignore this.
+//  - Without that lock, the browser never sees the Windows key, Alt+Tab,
+//    Ctrl+Alt+Delete or Fn. The quiz is hidden and the switch is recorded.
+//  - Function keys, Tab, Home/End, Alt, Esc and Ctrl shortcuts are blocked
+//    during the quiz. Backspace, Delete, Home/End and Ctrl+A/Z/Y keep working
+//    inside the short-answer box so students can still type.
 
 const BLOCKED_COMBOS = new Set(["c", "v", "x", "a", "p", "s", "u"]);
 
@@ -21,11 +32,21 @@ export function isFullscreen() {
   return !!(document.fullscreenElement || document.webkitFullscreenElement);
 }
 
+/** Asks Chrome/Edge to send system keys (Windows key, Alt+Tab, Esc) to the page while in fullscreen. */
+export function lockKeyboard() {
+  try { navigator.keyboard?.lock?.().catch(() => {}); } catch { /* not supported */ }
+}
+
+export function unlockKeyboard() {
+  try { navigator.keyboard?.unlock?.(); } catch { /* not supported */ }
+}
+
 export async function requestFullscreen() {
   const el = document.documentElement;
   try {
     if (el.requestFullscreen) await el.requestFullscreen({ navigationUI: "hide" });
     else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    lockKeyboard();
     return true;
   } catch {
     return false; // not allowed (e.g. iPhone Safari): the quiz still works
@@ -84,10 +105,27 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
     }
   };
 
+  // Record each kind of blocked key at most once every 5 seconds, so holding
+  // a key down does not fill the event log.
+  const lastLogged = new Map();
+  const logKey = (type) => {
+    const now = Date.now();
+    if (now - (lastLogged.get(type) || 0) < 5000) return;
+    lastLogged.set(type, now);
+    onEvent?.(type);
+  };
+  const stopKey = (e, type) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (type) logKey(type);
+  };
+
   const onKeyDown = (e) => {
     if (!active()) return;
     const key = (e.key || "").toLowerCase();
+    const code = e.code || "";
     const mod = e.ctrlKey || e.metaKey;
+    const typing = inEditable(e.target);
     // Win+Shift (Snipping Tool) and Cmd+Shift (macOS screenshots): hide first.
     if (e.metaKey && e.shiftKey) {
       hideBriefly(3000);
@@ -99,11 +137,38 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
     // Allow Ctrl+A / arrows inside the short-answer box, block everything else.
     const combo = mod && BLOCKED_COMBOS.has(key) && !(key === "a" && inEditable(e.target));
     if (devtools || combo) {
-      e.preventDefault();
-      e.stopPropagation();
-      onEvent?.(devtools ? "devtools_shortcut" : `shortcut_${key}`);
+      stopKey(e, devtools ? "devtools_shortcut" : `shortcut_${key}`);
+      return;
     }
-    if (key === "printscreen") hideBriefly();
+    if (key === "printscreen") { hideBriefly(); return; }
+
+    // Windows / Command key (reaches the page only with the keyboard lock).
+    if (key === "meta" || key === "os" || code.startsWith("Meta") || code.startsWith("OS")) {
+      hideBriefly(3000);
+      stopKey(e, "windows_key");
+      return;
+    }
+    // Alt+Tab, Ctrl+Tab and other app/tab switching.
+    if (key === "tab" && (e.altKey || mod)) { stopKey(e, "switch_shortcut"); return; }
+    // Alt on its own opens the browser menu on Windows; Alt+F4 closes the window.
+    if (key === "alt" || key === "altgraph" || e.altKey) { stopKey(e, e.altKey && key !== "alt" ? "alt_shortcut" : null); return; }
+    // F1 to F12 (help, refresh, fullscreen, caret browsing, address bar, ...).
+    if (/^f([1-9]|1[0-9]|2[0-4])$/.test(key)) { stopKey(e, "function_key"); return; }
+    // Esc: blocked where the browser allows it (it still leaves fullscreen
+    // without the keyboard lock, which is recorded separately).
+    if (key === "escape") { stopKey(e); return; }
+    if (key === "tab") { stopKey(e, "tab_key"); return; }
+    // Editing and navigation keys work while typing an answer, nowhere else.
+    if (["backspace", "delete", "home", "end", "pageup", "pagedown", "insert", "contextmenu"].includes(key)) {
+      if (!typing) stopKey(e);
+      return;
+    }
+    // Any other Ctrl/Cmd shortcut (find, new tab, history, zoom, ...). While
+    // typing, undo/redo, select all and word-wise moves/deletes still work.
+    if (mod) {
+      const editing = typing && (["a", "z", "y", "backspace", "delete", "arrowleft", "arrowright", "arrowup", "arrowdown", "home", "end", "shift", "control", "meta"].includes(key));
+      if (!editing && key !== "control" && key !== "shift") stopKey(e, "ctrl_shortcut");
+    }
   };
 
   const leave = (reason) => {
@@ -137,7 +202,7 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
 
   const onFullscreenChange = () => {
     if (!active()) return;
-    if (isFullscreen()) onFullscreenEnter?.();
+    if (isFullscreen()) { lockKeyboard(); onFullscreenEnter?.(); }
     else onFullscreenExit?.();
   };
 
@@ -175,6 +240,7 @@ export function startAntiCheat({ onLeave, onReturn, onFullscreenExit, onFullscre
     clearTimeout(unloadTimer);
     clearTimeout(captureTimer);
     onObscure?.(false);
+    unlockKeyboard();
     listeners.forEach(([t, ev, fn, cap]) => t.removeEventListener(ev, fn, !!cap));
   };
 }

@@ -10,6 +10,8 @@
 //
 // Opt out for one element with data-native.
 
+import "./icons.js"; // Font Awesome icons on every button
+
 const ENHANCED = new WeakMap(); // real element -> control
 let openControl = null;
 
@@ -114,7 +116,12 @@ class Select {
   highlight() {
     this.list.querySelectorAll(".cselect-option").forEach((n) => n.classList.toggle("is-active", Number(n.dataset.index) === this.active));
     const cur = this.list.querySelector(".is-active");
-    if (cur) cur.scrollIntoView({ block: "nearest" });
+    // Scroll only the list (scrollIntoView could also scroll the page, which closes the popup).
+    if (cur && !this.list.hidden) {
+      const l = this.list;
+      if (cur.offsetTop < l.scrollTop) l.scrollTop = cur.offsetTop;
+      else if (cur.offsetTop + cur.offsetHeight > l.scrollTop + l.clientHeight) l.scrollTop = cur.offsetTop + cur.offsetHeight - l.clientHeight;
+    }
   }
 
   open() {

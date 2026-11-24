@@ -29,7 +29,7 @@ export class HistoryView {
           <label class="stack-field"><span>Section</span><select data-h="section"></select></label>
           <label class="stack-field grow"><span>Search</span><input type="search" data-h="search" placeholder="Name or roll no."></label>
           <label class="check inline"><input type="checkbox" data-h="archive"> Include archived</label>
-          <button type="button" class="btn" data-h="refresh"><span class="i-refresh" aria-hidden="true"></span>Refresh</button>
+          <button type="button" class="btn" data-h="refresh">Refresh</button>
         </div>
       </div>
       <div data-h="list"></div>

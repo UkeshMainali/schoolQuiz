@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Teacher Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/dashboard.css">
 </head>
@@ -25,7 +29,7 @@
             <li><span class="dot" aria-hidden="true"></span>Add quizzes from your question banks</li>
           </ul>
         </div>
-        <p class="auth-foot">Students do not need an account.</p>
+        <p class="auth-foot">Created by <a href="https://www.instagram.com/mainaliukesh.143783333/" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-instagram" aria-hidden="true"></i> @mainaliukesh.143783333</a></p>
       </aside>
       <section class="auth-main">
         <h1>Sign in</h1>
@@ -48,7 +52,7 @@
           </div>
           <button type="submit" id="loginBtn" class="btn btn-primary btn-block btn-lg">Sign in</button>
         </form>
-        <p class="auth-alt"><a href="index.html">← Student homepage</a></p>
+        <p class="auth-alt"><a href="index.html"><i class="fa-solid fa-arrow-left" aria-hidden="true"></i> Student homepage</a><span class="dot-sep" aria-hidden="true">·</span><a href="about.html">About</a></p>
       </section>
     </div>
   </main>
@@ -71,20 +75,21 @@
       <nav class="side-nav tabs" role="tablist" aria-label="Dashboard">
         <div class="nav-group">
           <div class="nav-title">Records</div>
-          <button type="button" class="tab active" data-tab="results" role="tab"><span class="nav-icon i-results" aria-hidden="true"></span>Results</button>
-          <button type="button" class="tab" data-tab="history" role="tab"><span class="nav-icon i-history" aria-hidden="true"></span>Student history</button>
-          <button type="button" class="tab" data-tab="analysis" role="tab"><span class="nav-icon i-analysis" aria-hidden="true"></span>Analysis</button>
+          <button type="button" class="tab active" data-tab="results" role="tab"><i class="nav-icon fa-solid fa-table-list" aria-hidden="true"></i>Results</button>
+          <button type="button" class="tab" data-tab="history" role="tab"><i class="nav-icon fa-solid fa-user-clock" aria-hidden="true"></i>Student history</button>
+          <button type="button" class="tab" data-tab="analysis" role="tab"><i class="nav-icon fa-solid fa-chart-column" aria-hidden="true"></i>Analysis</button>
         </div>
         <div class="nav-group">
           <div class="nav-title">Content</div>
-          <button type="button" class="tab" data-tab="quizzes" role="tab"><span class="nav-icon i-quizzes" aria-hidden="true"></span>Quizzes</button>
+          <button type="button" class="tab" data-tab="quizzes" role="tab"><i class="nav-icon fa-solid fa-file-circle-check" aria-hidden="true"></i>Quizzes</button>
         </div>
         <div class="nav-group">
           <div class="nav-title">Data</div>
-          <button type="button" class="tab" data-tab="archive" role="tab"><span class="nav-icon i-archive" aria-hidden="true"></span>Archive &amp; backup</button>
-          <button type="button" class="tab" data-tab="settings" role="tab"><span class="nav-icon i-settings" aria-hidden="true"></span>School settings</button>
+          <button type="button" class="tab" data-tab="archive" role="tab"><i class="nav-icon fa-solid fa-box-archive" aria-hidden="true"></i>Archive &amp; backup</button>
+          <button type="button" class="tab" data-tab="settings" role="tab"><i class="nav-icon fa-solid fa-sliders" aria-hidden="true"></i>School settings</button>
         </div>
       </nav>
+      <a class="side-about" href="about.html"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>About</a>
       <div id="userBox" class="side-user" hidden>
         <span class="avatar" id="userInitial" aria-hidden="true"></span>
         <span id="userEmail" class="side-email"></span>
