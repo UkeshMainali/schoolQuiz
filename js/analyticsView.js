@@ -5,7 +5,7 @@ import { queryAttempts, fetchResults } from "./records.js";
 import { toRow } from "./recordsView.js";
 import { teacher, sortedQuizzes, quizTitle, appNotice, onTeacherChange } from "./teacherState.js";
 import { overview, groupBy, scoreBands, studentStats, questionStats, lessonStats, countable } from "./analytics.js";
-import { escapeHtml, friendlyError, sectionsFor, pluralize, historyLink } from "./utilities.js";
+import { escapeHtml, friendlyError, sectionsFor, pluralize, historyLink, skeleton } from "./utilities.js";
 
 const MAX_RECORDS = 3000;
 
@@ -82,7 +82,7 @@ export class AnalyticsView {
     const scope = this.scope();
     const key = JSON.stringify(scope);
     if (this.cache.has(key)) { this.rows = this.cache.get(key); this.render(); return; }
-    this.$("[data-out]").innerHTML = '<div class="loading"><span class="spinner"></span> Loading records…</div>';
+    this.$("[data-out]").innerHTML = `${skeleton("cards")}${skeleton("table", { cols: 5, rows: 5 })}`;
     try {
       let items = [];
       let cursor = null;

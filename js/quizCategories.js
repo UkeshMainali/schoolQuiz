@@ -4,8 +4,8 @@
 //   settings/quizCategories  { categories: [{ id, name }], updatedAt }   tab names, in display order
 //   quizzes/{id}.categoryId  the tab a quiz belongs to
 //
-// A quiz with no categoryId, or one whose tab was removed, is shown under
-// "Uncategorized", so quizzes created before tabs existed need no migration.
+// A quiz with no categoryId, or one whose tab was removed, has "No tab": it
+// shows under All quizzes, so quizzes created before tabs existed need no migration.
 // Tabs are edited in a transaction, so two open dashboards cannot overwrite
 // each other's changes. Deleting a tab first moves its quizzes, then removes
 // the name: quizzes and student records are never deleted.
@@ -14,7 +14,7 @@ import { db, doc, getDoc, runTransaction, writeBatch, serverTimestamp } from "./
 
 export const ALL = "__all";
 export const UNCATEGORIZED = "";
-export const UNCATEGORIZED_NAME = "Uncategorized";
+export const UNCATEGORIZED_NAME = "No tab"; // quizzes without a tab show only under All quizzes
 const MOVES_PER_BATCH = 400;
 const ref = () => doc(db, "settings", "quizCategories");
 
@@ -76,7 +76,7 @@ export async function moveQuizzes(quizIds, categoryId) {
   }
 }
 
-/** Moves the tab's quizzes to moveTo (another tab id or "" for Uncategorized), then removes the tab. */
+/** Moves the tab's quizzes to moveTo (another tab id, or "" for no tab), then removes the tab. */
 export async function deleteCategory(id, quizIds, moveTo = UNCATEGORIZED) {
   if (moveTo === id) throw new Error("Choose a different tab for the quizzes.");
   if (quizIds.length) await moveQuizzes(quizIds, moveTo);

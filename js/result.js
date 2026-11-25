@@ -230,7 +230,7 @@ function renderActivity() {
       <thead><tr><th>Time</th><th>Event</th><th class="num">On question</th></tr></thead>
       <tbody>${events.slice().reverse().map((e) => `<tr><td class="small">${escapeHtml(formatDateTime(new Date(e.at)))}</td><td>${escapeHtml(EVENT_LABELS[e.type] || e.type)}</td><td class="num">${escapeHtml(e.q ?? "")}</td></tr>`).join("")}</tbody>
     </table></div>` : '<p class="muted">No unusual activity was recorded.</p>'}
-    <p class="small muted">Only what the browser could detect. Not proof of cheating, and phones or other devices are not detected.</p>`;
+    <p class="small muted">Browser-detected only. Not proof of cheating.</p>`;
 }
 
 async function saveResult(overrides) {
@@ -278,7 +278,7 @@ const ACTIONS = {
   async accept() { await review("accepted"); },
   async pending() { await review("pending"); },
   async decline() {
-    const ok = await confirmDialog({ title: "Decline this submission?", text: "It stays in the records but is not graded and is left out of averages and analysis. You can accept it later.", okText: "Decline" });
+    const ok = await confirmDialog({ title: "Decline this submission?", text: "It is left out of grades and averages. You can accept it later.", okText: "Decline" });
     if (ok) await review("declined", "Declined by teacher");
   },
   async print() {
@@ -293,7 +293,7 @@ const ACTIONS = {
   async retake() {
     const ok = await confirmDialog({
       title: "Allow this student to take the quiz again?",
-      text: `${attempt.studentName}'s current attempt for "${attempt.quizTitle}" is kept as a previous attempt (it stays in the results and the student history). The student can then start the quiz again with the same details while the quiz is open.`,
+      text: `The current attempt is kept as a previous attempt.`,
       okText: "Allow retake"
     });
     if (!ok) return;
@@ -302,7 +302,7 @@ const ACTIONS = {
     setTimeout(() => location.replace(historyUrl()), 1200);
   },
   async archive() {
-    const ok = await confirmDialog({ title: "Archive this record?", text: "It moves to the Archive tab. Nothing is deleted, and you can restore it at any time.", okText: "Archive" });
+    const ok = await confirmDialog({ title: "Archive this record?", text: "You can restore it later.", okText: "Archive" });
     if (!ok) return;
     await archiveRecords([record()]);
     location.replace(`result.html?id=${encodeURIComponent(attempt.id)}&source=archive`);
@@ -315,7 +315,7 @@ const ACTIONS = {
   async delete() {
     const res = await confirmDialog({
       title: isArchive ? "Permanently delete this record?" : "Delete this record?",
-      text: "The attempt and its result are permanently removed. This cannot be undone. Archive instead if you may need it later.",
+      text: "This cannot be undone.",
       okText: "Delete", danger: true,
       option: { label: "Download a backup file of this record first (recommended)", checked: true }
     });

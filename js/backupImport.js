@@ -15,7 +15,7 @@ export class BackupImport {
     this.onImported = onImported;
     this.state = null;
     this.el.innerHTML = `
-      <div class="card-head"><div><h2>Restore from a backup</h2><p class="card-sub">Use a file made with Export → Backup file. Existing records are never overwritten.</p></div></div>
+      <div class="card-head"><div><h2>Restore from a backup</h2><p class="card-sub">Use a backup file from Export. Existing records are not overwritten.</p></div></div>
       <label class="file-drop">
           <input type="file" class="native-hidden" accept=".json,application/json" data-b="file" aria-label="Backup file">
           <span class="file-drop-icon" aria-hidden="true"></span>
@@ -128,7 +128,7 @@ export class BackupImport {
     if (!out.length) return;
     const ok = await confirmDialog({
       title: `Import ${pluralize(out.length, "record")}?`,
-      text: `They will be added to the ${target === "archive" ? "Archive" : "Results"}. No existing record is changed.`,
+      text: `They will be added to ${target === "archive" ? "Archive" : "Results"}.`,
       okText: "Import"
     });
     if (!ok) return;

@@ -316,13 +316,15 @@ you choose, so the answers stay on your computer and in the teacher-only
 ### Managing quizzes
 
 **Tabs.** The row at the top of the quiz list holds your own tabs (for
-example *Examinations*, *Practice tests*), plus *All quizzes* and
-*Uncategorized*. **New tab** creates one; the **⋯** button next to a tab's
-name renames or deletes it. Tab names are saved in Firestore, so they are the
+example *Examinations*, *Practice tests*), after *All quizzes*. **New tab**
+creates one; **Rename tab** and **Delete tab** appear next to the open tab's
+name. With many tabs the row scrolls sideways (drag, swipe or mouse wheel); it
+never scrolls up and down. Tab names are saved in Firestore, so they are the
 same after a refresh, after signing in again and on another computer.
 
-- Quizzes from before tabs existed, and quizzes whose tab was deleted, are in
-  *Uncategorized*. Nothing needs migrating.
+- Quizzes from before tabs existed, and quizzes whose tab was deleted, have
+  no tab: they show under *All quizzes* with "—" in the Tab column. Nothing
+  needs migrating.
 - **Upload into a tab:** open the tab, then choose the files. Step 3 of the
   preview shows the tab the new quizzes go to, and you can pick another one.
   A quiz that *replaces* an existing one stays in its current tab.
@@ -332,7 +334,7 @@ same after a refresh, after signing in again and on another computer.
   stay as they are.
 - **Deleting a tab** never deletes quizzes. An empty tab asks for a simple
   confirmation. A tab with quizzes asks where they should go (another tab or
-  Uncategorized) and needs a tick before it is deleted.
+  no tab) and needs a tick before it is deleted.
 
 **The table** can be searched by title or ID and filtered by grade and status
 (open, closed, archived), inside the chosen tab. Click a column heading to
@@ -495,6 +497,7 @@ real `firestore.rules`, using headless Chromium, on 23 November 2026:
 - **Design overhaul (18 checks), plus every suite above re-run after it:** no browser dropdown or date field is visible; the styled dropdown opens, filters the table, keeps the real field's value and closes with Escape; Clear resets the dropdown and date labels; picking a day in the date picker filters by date; menus close on an outside click; dropping a file on the picker opens the import preview; Analysis switches views; the student's section dropdown works; Show password works. No sideways page scroll on any dashboard tab at phone and tablet width.
 - **Header, icons and key locking (5 checks), plus every suite above re-run after it:** keys work normally before the quiz starts; once it starts F1/F5/F11/F12, Esc, Tab, Alt+Tab, Alt, the Windows key, Home/End, Backspace/Delete and Ctrl+C/F/T/P are blocked; Backspace, Delete, Home/End and Ctrl+Z/A/arrows still work in a text box, and Backspace really deletes typed text; copy/paste, F-keys and Tab stay blocked inside the box. These use simulated key presses in Chromium; the Keyboard Lock behaviour for the real Windows key needs a Windows PC to confirm. No sideways scroll on the homepage or About page at 390px and 360px.
 - **Phase 3 (83 checks in the browser, 19 more security-rule checks), plus every suite above re-run after it:** create three tabs (saved in Firestore, shown in order), duplicate and reserved names refused, rename, move one quiz (only `categoryId` changes, no duplicate records), move two at once, tab shows only its quizzes, empty-tab message, upload into the selected tab and into a tab picked in the preview, delete an empty tab, delete a tab with quizzes (confirmation tick required, cancel keeps it, quizzes moved to the chosen tab, none deleted, results untouched), tabs kept after refresh, after signing out and in, and in a second browser; quiz table sorted by title both ways, question count, tab, created date and grade, search + grade + status filters combined with sorting, Open/Close still act on the right quiz after sorting; Student history sorted by name, roll (numeric), section, overall and average % with empty values last in both directions, quizzes attempted, last submitted, search + sort, keyboard sorting, and one student's attempts by %, date and quiz; settings refuse a decimal limit and save 6-A = 5; the student form shows "roll numbers 1 to 5", accepts 1 and 5, refuses 6, 0, -2, 2.5, letters and empty, will not continue with 6, re-checks when the section changes, accepts 6 after the limit is raised to 8 (fresh settings, no reload), blocks starting a quiz after the limit is lowered to 4, the quiz page itself refuses a roll above the limit and creates no attempt, a submit is refused after the limit is lowered (answers kept, attempt unchanged) and succeeds once it is raised; existing records untouched. Rules: rolls 1 and 40 accepted for a limit of 40, 41, 0, 07, -3 and 4.5 refused, other sections' limits used, no limit when none is set or the settings document is missing, submit refused above a lowered limit and allowed after it is raised; only the teacher can change tabs or move quizzes.
+- **Phase 3 follow-up (87 + 5 checks), plus every browser suite above re-run after it:** no *Uncategorized* tab; quizzes without a tab are listed under *All quizzes* with "—"; Rename and Delete are visible next to the tab name; with 15 tabs the row scrolls sideways (overflow-y hidden, mouse wheel scrolls it sideways, no page-wide scroll); the shorter dialog texts; skeleton placeholders appear on the student page and the dashboard while Firestore is held back for 2.5 seconds and are replaced by the real content, and the quiz and result pages start with a skeleton. The security rules did not change in this round, so that suite was not re-run.
 - **Netlify:** the Phase 2 suite (49 checks) was run again through Netlify's local server (`netlify dev`) with `netlify.toml` after these changes, and all passed. (The version 2 suite passed there in the version 2 round.) `/data/…`, `README.md` and `firestore.rules` return 404.
 
 **Not tested:** the live Firebase project (only the emulators), real phones
@@ -582,6 +585,7 @@ Version 1 links still work: `index.html`, `quiz.html`, `dashboard.html` and
 - **One sorting system:** `js/tableSort.js` is used by Results, Archive, Quizzes and both Student history tables. Numbers sort as numbers, dates by time, text naturally (Lesson 2 before Lesson 10); empty values always go last; headings can be sorted with the keyboard (Tab to the heading, then Enter).
 - **Student history:** every data column sorts (student, roll, grade, section, quizzes, counted, overall %, average %, and a new *Last submitted* column), and so does one student's list of attempts (quiz, name used, submitted, status, marks, %, left).
 - **Roll number limits:** the *Students* number of a section in School settings is now enforced. With 40, roll numbers 1 to 40 are accepted; 0, 41, negative numbers, decimals, letters and empty values are refused with a message such as "Invalid roll number. This section allows roll numbers from 1 to 40." It is checked while typing, when the details are saved, when a quiz is started (with settings read fresh) and again before the quiz is submitted, and **the security rules check it too** when an attempt is created and when it is submitted. Lowering a limit never changes or deletes existing records; a student above the new limit cannot start or submit until the teacher raises it or the student corrects the roll number, and their saved answers are kept meanwhile.
+- **Follow-up:** the *Uncategorized* tab was removed (those quizzes show under *All quizzes*); the tab row scrolls only sideways; Rename tab and Delete tab are buttons next to the tab name; helper texts and confirmation messages were shortened; pages show grey skeleton placeholders instead of a blank screen or spinner while data loads.
 - **Upgrade:** publish the new `firestore.rules` (section 3.4). No data migration and no index are needed. Roll number 0 is no longer accepted for new attempts.
 
 ### Design overhaul

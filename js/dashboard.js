@@ -5,7 +5,7 @@
 
 import { watchTeacher, teacherSignIn, teacherSignOut, resetPassword } from "./auth.js";
 import { clearKeyCache } from "./grading.js";
-import { friendlyError, showNotice, hideNotice, storage } from "./utilities.js";
+import { friendlyError, showNotice, hideNotice, storage, skeleton } from "./utilities.js";
 import { loadTeacherData, appNotice } from "./teacherState.js";
 import { RecordsView } from "./recordsView.js";
 import { AnalyticsView } from "./analyticsView.js";
@@ -100,6 +100,9 @@ const parts = {};
 const stale = { results: true, archive: true };
 
 async function start() {
+  // Placeholders until quizzes and settings arrive.
+  [["tab-results", "page", 10], ["tab-history", "table", 8], ["tab-analysis", "page", 5], ["tab-quizzes", "table", 9], ["archiveRecords", "table", 10], ["tab-settings", "table", 3]]
+    .forEach(([id, kind, cols]) => { $(id).innerHTML = skeleton(kind, { cols, rows: 6 }); });
   try {
     await loadTeacherData();
   } catch (err) {

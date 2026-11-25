@@ -9,7 +9,7 @@ import { groupByStudent, performance, studentKey } from "./analytics.js";
 import { teacher, appNotice, onTeacherChange } from "./teacherState.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import { buildReport, printHtml } from "./print.js";
-import { escapeHtml, formatDateTime, friendlyError, sectionsFor, normalizeRoll, pluralize, storage } from "./utilities.js";
+import { escapeHtml, formatDateTime, friendlyError, sectionsFor, normalizeRoll, pluralize, storage, skeleton } from "./utilities.js";
 
 const MAX_RECORDS = 3000;
 const fmt = (v, suffix = "") => (v === null || v === undefined ? "—" : `${v}${suffix}`);
@@ -121,7 +121,7 @@ export class HistoryView {
     this.$("list").hidden = false;
     const scope = { grade: this.scope.grade, section: this.scope.section };
     this.loadedKey = JSON.stringify(this.scope);
-    this.$("list").innerHTML = '<div class="loading"><span class="spinner"></span> Loading students…</div>';
+    this.$("list").innerHTML = skeleton("table", { cols: 8, rows: 8 });
     try {
       const { rows, capped } = await this.fetch(scope, this.scope.archive);
       this.rows = rows;
@@ -203,7 +203,7 @@ export class HistoryView {
     this.$("list").hidden = true;
     const box = this.$("detail");
     box.hidden = false;
-    box.innerHTML = '<div class="loading"><span class="spinner"></span> Loading history…</div>';
+    box.innerHTML = skeleton("page", { cols: 7, rows: 5 });
     try {
       const { rows } = await this.fetch({ grade: student.grade, section: student.section, rollNo: student.rollNo }, this.scope.archive);
       this.renderDetail(student, rows);
@@ -264,7 +264,7 @@ export class HistoryView {
           <div class="summary-card"><div class="summary-label">Overall</div><div class="summary-value">${fmt(perf.overallPercent, "%")}</div><div class="summary-sub">total marks ÷ possible</div></div>
           <div class="summary-card"><div class="summary-label">Average</div><div class="summary-value">${fmt(perf.averagePercent, "%")}</div><div class="summary-sub">mean of quiz %</div></div>
         </div>
-        <p class="small muted">Counted: graded and not declined. For a retaken quiz only the latest attempt counts.</p>
+        <p class="small muted">Only the latest graded attempt of each quiz counts.</p>
       </section>
       <section class="card table-card">
         <div class="table-wrap">

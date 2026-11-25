@@ -316,11 +316,12 @@ td .cselect .cselect-button { min-height: var(--control-sm); font-size: 0.85rem;
 .inline-form { display: flex; gap: 8px; }
 .inline-form input { flex: 1 1 auto; min-width: 0; }
 .section-table { table-layout: fixed; margin-bottom: 12px; }
-.section-table th:nth-child(2), .section-table td:nth-child(2) { width: 110px; }
-.section-table th:nth-child(3), .section-table td:nth-child(3) { width: 96px; }
+.section-table .col-size { width: 110px; }
+.section-table .col-act { width: 124px; }
+.section-table th.students-head { text-align: left; white-space: nowrap; }
 .section-table th { white-space: normal; }
 .section-table input { min-height: var(--control-sm); }
-.section-table .num-input { text-align: right; }
+.section-table .num-input { text-align: left; }
 .grade-editor .card-head h3 { display: flex; align-items: center; gap: 8px; }
 
 @media (max-width: 1100px) {
@@ -332,8 +333,8 @@ td .cselect .cselect-button { min-height: var(--control-sm); font-size: 0.85rem;
   .browse-label { width: 100%; flex-basis: 100%; }
   .browse-row .data-info { margin-left: 0; }
   .grade-editors { grid-template-columns: 1fr; }
-  .section-table th:nth-child(2), .section-table td:nth-child(2) { width: 80px; }
-  .section-table th:nth-child(3), .section-table td:nth-child(3) { width: 84px; }
+  .section-table .col-size { width: 80px; }
+  .section-table .col-act { width: 110px; }
   .table-card { padding: 16px 16px 6px; }
   .table-card .table-wrap { margin: 0 -16px; width: calc(100% + 32px); }
   .table-card .data-table th:first-child, .table-card .data-table td:first-child { padding-left: 16px; }
@@ -409,7 +410,6 @@ td .cselect .cselect-button { min-height: var(--control-sm); font-size: 0.85rem;
 .qtab.active { color: var(--primary); border-bottom-color: var(--primary); }
 .qtab.active .chip-count { background: var(--primary-soft, #e8efff); color: var(--primary); }
 .qtab-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-.qtab-default .qtab-name { font-style: italic; }
 .qtabs-add { flex: 0 0 auto; }
 .qtab-head { margin-bottom: 14px; }
 .qtab-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
@@ -434,3 +434,7 @@ td .cselect .cselect-button { min-height: var(--control-sm); font-size: 0.85rem;
 .qtabs-bar.fade-right .qtabs { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
 .qtabs-bar.fade-left .qtabs { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
 .qtabs-bar.fade-left.fade-right .qtabs { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+/* The tab row scrolls sideways only, never up and down. */
+.qtabs { overflow-x: auto; overflow-y: hidden; touch-action: pan-x; }
+.qtab-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.skel-page { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }

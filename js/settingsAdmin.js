@@ -45,8 +45,7 @@ export class SettingsAdmin {
       <form class="settings-form" novalidate>
         <div class="settings-layout">
           <div class="settings-main">
-            <div class="section-title"><h2>Grades and sections</h2><span>Renaming or removing a section never changes existing results.</span></div>
-            <p class="small muted settings-note">Students: the highest roll number allowed in the section (e.g. 40 allows 1 to 40). Leave it empty for no limit. Lowering it never changes existing records; a student above the new limit cannot start or submit a quiz until it is corrected.</p>
+            <div class="section-title"><h2>Grades and sections</h2></div>
             <div class="grade-editors">
               ${this.grades.map((g) => this.gradeCard(g)).join("")}
             </div>
@@ -63,7 +62,7 @@ export class SettingsAdmin {
               <div class="field">
                 <label for="setPass">Default pass mark (%)</label>
                 <input type="number" id="setPass" min="1" max="100" required value="${escapeHtml(this.pass)}">
-                <p class="hint">For quizzes without their own pass mark. Applies the next time results are graded.</p>
+                <p class="hint">Used when a quiz has no pass mark of its own.</p>
               </div>
             </div>
             <div class="card save-card">
@@ -86,13 +85,13 @@ export class SettingsAdmin {
           <h3>Grade ${escapeHtml(g.grade)}${g.isNew ? ' <span class="badge badge-info">New</span>' : ""}</h3>
           <button type="button" class="btn btn-small btn-danger" data-act="remove-grade" data-g="${g.key}">Remove grade</button>
         </div>
-        <table class="data-table compact section-table">
-          <thead><tr><th>Section name</th><th class="num" title="Highest roll number students of this section may enter. Leave empty for no limit.">Students (max roll no.)</th><th></th></tr></thead>
+        <table class="data-table compact section-table"><colgroup><col><col class="col-size"><col class="col-act"></colgroup>
+          <thead><tr><th>Section name</th><th colspan="2" class="students-head" title="Highest roll number students of this section may enter. Leave empty for no limit.">Students (max roll no.)</th></tr></thead>
           <tbody>
             ${g.sections.map((s) => `
               <tr data-s="${s.key}">
                 <td><input type="text" maxlength="30" value="${escapeHtml(s.name)}" data-field="name" data-g="${g.key}" data-s="${s.key}" aria-label="Section name">
-                  ${s.original && s.original !== s.name ? `<div class="small muted">Renamed from "${escapeHtml(s.original)}". Old results keep "${escapeHtml(s.original)}".</div>` : ""}</td>
+                  ${s.original && s.original !== s.name ? `<div class="small muted">Was "${escapeHtml(s.original)}"</div>` : ""}</td>
                 <td class="num"><input type="text" maxlength="6" inputmode="numeric" placeholder="No limit" value="${escapeHtml(s.size)}" data-field="size" data-g="${g.key}" data-s="${s.key}" aria-label="Students in section (highest roll number)" class="num-input"></td>
                 <td><button type="button" class="btn btn-small" data-act="remove-section" data-g="${g.key}" data-s="${s.key}" aria-label="Remove section">Remove</button></td>
               </tr>`).join("")}
@@ -138,7 +137,7 @@ export class SettingsAdmin {
         if (s.original) {
           const ok = await confirmDialog({
             title: `Remove section "${s.original}" from Grade ${g.grade}?`,
-            text: "Students will no longer be able to choose it. Existing results for this section are kept and stay visible on the Results tab.",
+            text: "Existing results are kept.",
             okText: "Remove section"
           });
           if (!ok) return;
@@ -151,7 +150,7 @@ export class SettingsAdmin {
       case "remove-grade": {
         const ok = await confirmDialog({
           title: `Remove Grade ${g.grade}?`,
-          text: "Students will no longer be able to choose this grade. Quizzes, results and archived records for it are kept.",
+          text: "Quizzes and results are kept.",
           okText: "Remove grade"
         });
         if (!ok) return;
@@ -217,7 +216,7 @@ export class SettingsAdmin {
       setSettings(data);
       this.load();
       this.render();
-      appNotice("Settings saved. Students get the new grades, sections and roll number limits the next time they save their details or start a quiz.", "success");
+      appNotice("Settings saved.", "success");
     } catch (e) {
       appNotice(`Could not save settings. ${friendlyError(e)}`, "error");
       btn.disabled = false;

@@ -17,7 +17,7 @@ import { teacher, sortedQuizzes, quizTitle, appNotice, onTeacherChange } from ".
 import { overview } from "./analytics.js";
 import {
   escapeHtml, formatDateTime, toDate, friendlyError, downloadFile, confirmDialog, pluralize,
-  sectionsFor, storage, historyLink
+  sectionsFor, storage, historyLink, skeletonRows
 } from "./utilities.js";
 
 const FLAG_THRESHOLD = 3;
@@ -117,7 +117,7 @@ export class RecordsView {
         <div class="menu-list">${items.map(([verb, text]) => `<button type="button" data-act="${verb}-${which}">${escapeHtml(text)}</button>`).join("")}</div>
       </details>`;
     this.el.innerHTML = `
-      ${a ? '<div class="section-title"><h2>Archived records</h2><span>Hidden from Results, never deleted.</span></div>' : ""}
+      ${a ? '<div class="section-title"><h2>Archived records</h2></div>' : ""}
       <div class="browse card">
         <div class="browse-row"><span class="browse-label">Grade</span><div class="chips" data-level="grade"></div></div>
         <div class="browse-row" data-row="section"><span class="browse-label">Section</span><div class="chips" data-level="section"></div></div>
@@ -223,6 +223,7 @@ export class RecordsView {
     this.reloadAfter = false;
     const info = this.$(".data-info");
     info.textContent = "Loading…";
+    if (!more) { this.$("[data-body]").innerHTML = skeletonRows(12, 8); this.$("[data-empty]").hidden = true; }
     try {
       if (!more) { this.items = []; this.results = new Map(); this.cursor = null; this.selected.clear(); }
       const page = await queryAttempts(this.source, this.scope, { pageSize: PAGE_SIZE, cursor: more ? this.cursor : null });
@@ -538,7 +539,7 @@ export class RecordsView {
       switch (verb) {
         case "grade": return await this.grade(rows.filter((r) => r.submitted && r.review !== "declined"), rows);
         case "regrade": {
-          const ok = await confirmDialog({ title: `Regrade ${pluralize(rows.length, "record")}?`, text: "Submitted records will be graded again with the current answer keys. Declined submissions are skipped. Manual corrections are kept.", okText: "Regrade" });
+          const ok = await confirmDialog({ title: `Regrade ${pluralize(rows.length, "record")}?`, text: "Uses the current answer keys. Manual corrections are kept.", okText: "Regrade" });
           if (ok) await this.grade(rows.filter((r) => r.submitted && r.review !== "declined"), rows);
           return;
         }
@@ -590,7 +591,7 @@ export class RecordsView {
     if (status === "decline") {
       const ok = await confirmDialog({
         title: `Decline ${pluralize(eligible.length, "submission")}?`,
-        text: "Declined submissions stay in the records but are not graded and are left out of averages and analysis. You can accept them later.",
+        text: "They are left out of grades and averages. You can accept them later.",
         okText: "Decline"
       });
       if (!ok) return;
@@ -640,13 +641,13 @@ export class RecordsView {
 
   exportBackup(rows) {
     downloadFile(`${this.fileStem()}_backup.json`, buildBackup(rows.map((r) => ({ id: r.id, attempt: r.attempt, result: r.result })), this.source), "application/json");
-    appNotice(`Downloaded a backup of ${pluralize(rows.length, "record")}. Keep it safe: it can be re-imported on the Archive & backup tab.`, "success");
+    appNotice(`Downloaded a backup of ${pluralize(rows.length, "record")}.`, "success");
   }
 
   async archive(rows, label) {
     const ok = await confirmDialog({
       title: `Archive ${pluralize(rows.length, "record")}?`,
-      text: `The ${label} move to the Archive tab. They are not deleted and can be restored at any time. A student whose record is archived can take that quiz again while it is open.`,
+      text: `The ${label} move to the Archive. You can restore them later.`,
       okText: "Archive"
     });
     if (!ok) return;
@@ -672,7 +673,7 @@ export class RecordsView {
     const filtered = label === "records shown";
     const res = await confirmDialog({
       title: `${this.isArchive ? "Permanently delete" : "Delete"} ${pluralize(n, "record")}?`,
-      text: `This permanently removes the ${label} (${pluralize(n, "quiz attempt")} and their results) from Firestore. It cannot be undone. Archive instead if you may need them later.`,
+      text: `This permanently deletes the ${label}. It cannot be undone.`,
       okText: `Delete ${pluralize(n, "record")}`,
       danger: true,
       option: { label: "Download a backup file of these records first (recommended)", checked: true },

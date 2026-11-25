@@ -14,7 +14,7 @@ import { db, doc, writeBatch, serverTimestamp, Timestamp } from "./firebase.js";
 import { parseQuestionBank, buildQuiz, toQuizMeta, toQuizContent, toAnswerKey } from "./questionBank.js";
 import { loadAnswerKey, clearKeyCache } from "./grading.js";
 import { teacher, reloadQuizzes, reloadCategories, setCategories, appNotice, onTeacherChange } from "./teacherState.js";
-import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage } from "./utilities.js";
+import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage, skeleton } from "./utilities.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import {
   ALL, UNCATEGORIZED, UNCATEGORIZED_NAME, addCategory, renameCategory, deleteCategory, moveQuizzes,
@@ -30,7 +30,7 @@ const STATUS_ORDER = (q) => (q.archived ? 2 : q.active ? 0 : 1);
 const QUIZ_VALUE = {
   title: (q) => q.title,
   grade: (q) => q.grade,
-  category: (q) => categoryName(categoryOf(q, teacher.categories), teacher.categories),
+  category: (q) => { const c = categoryOf(q, teacher.categories); return c ? categoryName(c, teacher.categories) : null; }, // no tab = empty, sorts last
   questions: (q) => (typeof q.questionCount === "number" ? q.questionCount : null),
   marks: (q) => (typeof q.totalMarks === "number" ? q.totalMarks : null),
   status: STATUS_ORDER,
@@ -52,7 +52,7 @@ export class QuizAdmin {
     this.limit = PAGE;
     this.el.innerHTML = `
       <div class="card">
-        <div class="card-head"><div><h2>Add quizzes</h2><p class="card-sub">Each lesson becomes a quiz, or merge lessons into one. A new quiz never replaces an earlier one unless you choose Replace.</p></div></div>
+        <div class="card-head"><div><h2>Add quizzes</h2><p class="card-sub">Upload a question bank file.</p></div></div>
         <label class="file-drop">
           <input type="file" class="native-hidden" accept=".json,application/json" multiple data-q="file" aria-label="Question bank files">
           <span class="file-drop-icon" aria-hidden="true"></span>
@@ -160,6 +160,13 @@ export class QuizAdmin {
     });
     this.$("new-tab").addEventListener("click", () => this.run(() => this.newTab()));
     this.$("tabs").addEventListener("scroll", () => this.updateTabFades(), { passive: true });
+    // The tab row only scrolls sideways: a mouse wheel scrolls it left/right.
+    this.$("tabs").addEventListener("wheel", (e) => {
+      const strip = this.$("tabs");
+      if (strip.scrollWidth <= strip.clientWidth || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      strip.scrollLeft += e.deltaY;
+    }, { passive: false });
     window.addEventListener("resize", () => { if (this.shown) this.updateTabFades(); });
     this.$("tab-actions").addEventListener("click", (e) => {
       const b = e.target.closest("[data-tab-act]");
@@ -188,7 +195,7 @@ export class QuizAdmin {
     try { await fn(); } catch (err) { console.error(err); appNotice(friendlyError(err), "error"); }
   }
 
-  tabExists(id) { return id === ALL || id === UNCATEGORIZED || teacher.categories.some((c) => c.id === id); }
+  tabExists(id) { return id === ALL || teacher.categories.some((c) => c.id === id); }
 
   setTab(id) {
     this.tab = this.tabExists(id) ? id : ALL;
@@ -200,7 +207,7 @@ export class QuizAdmin {
 
   /** Quizzes counted on each tab, with the current status filter. */
   tabCounts() {
-    const counts = new Map([[ALL, 0], [UNCATEGORIZED, 0]]);
+    const counts = new Map([[ALL, 0]]);
     teacher.categories.forEach((c) => counts.set(c.id, 0));
     [...teacher.quizzes.values()].filter((q) => this.statusMatches(q)).forEach((q) => {
       const c = categoryOf(q, teacher.categories);
@@ -213,10 +220,10 @@ export class QuizAdmin {
   renderTabs() {
     if (!this.tabExists(this.tab)) this.tab = ALL;
     const counts = this.tabCounts();
-    const tabs = [[ALL, "All quizzes"], ...teacher.categories.map((c) => [c.id, c.name]), [UNCATEGORIZED, UNCATEGORIZED_NAME]];
+    const tabs = [[ALL, "All quizzes"], ...teacher.categories.map((c) => [c.id, c.name])];
     this.$("tabs").innerHTML = tabs.map(([id, name]) => {
       const on = id === this.tab;
-      return `<button type="button" role="tab" class="qtab${on ? " active" : ""}${id === UNCATEGORIZED ? " qtab-default" : ""}" data-tab-id="${escapeHtml(id)}" aria-selected="${on}" tabindex="${on ? 0 : -1}">
+      return `<button type="button" role="tab" class="qtab${on ? " active" : ""}" data-tab-id="${escapeHtml(id)}" aria-selected="${on}" tabindex="${on ? 0 : -1}">
         <span class="qtab-name">${escapeHtml(name)}</span><span class="chip-count">${counts.get(id) || 0}</span></button>`;
     }).join("");
     // Keep the active tab in view by scrolling the tab row only (never the page).
@@ -228,15 +235,11 @@ export class QuizAdmin {
     }
     this.updateTabFades();
     const custom = teacher.categories.find((c) => c.id === this.tab);
-    this.$("tab-title").textContent = this.tab === ALL ? "All quizzes" : custom ? custom.name : UNCATEGORIZED_NAME;
+    this.$("tab-title").textContent = custom ? custom.name : "All quizzes";
+    // Rename and Delete sit in plain sight next to the tab's name.
     this.$("tab-actions").innerHTML = custom ? `
-      <details class="menu menu-right">
-        <summary class="btn btn-small" aria-label="Tab actions">⋯</summary>
-        <div class="menu-list">
-          <button type="button" data-tab-act="rename">Rename tab…</button>
-          <button type="button" data-tab-act="delete" class="danger">Delete tab…</button>
-        </div>
-      </details>` : "";
+      <button type="button" class="btn btn-small" data-tab-act="rename">Rename tab</button>
+      <button type="button" class="btn btn-small btn-danger" data-tab-act="delete">Delete tab</button>` : "";
   }
 
   /** Fades the edge of the tab row where more tabs are hidden. */
@@ -258,7 +261,7 @@ export class QuizAdmin {
     const { list, id } = await addCategory(name);
     setCategories(list);
     this.setTab(id);
-    appNotice(`Tab "${name}" created. Add quizzes to it with "Move to tab", or upload while it is selected.`, "success");
+    appNotice(`Tab "${name}" created.`, "success");
   }
 
   async renameTab() {
@@ -282,11 +285,11 @@ export class QuizAdmin {
     const ids = [...teacher.quizzes.values()].filter((q) => categoryOf(q, teacher.categories) === cat.id).map((q) => q.id);
     let moveTo = UNCATEGORIZED;
     if (ids.length) {
-      const others = [{ value: UNCATEGORIZED, label: UNCATEGORIZED_NAME }, ...teacher.categories.filter((c) => c.id !== cat.id).map((c) => ({ value: c.id, label: c.name }))];
+      const others = [...teacher.categories.filter((c) => c.id !== cat.id).map((c) => ({ value: c.id, label: c.name })), { value: UNCATEGORIZED, label: "No tab (they stay under All quizzes)" }];
       const chosen = await inputDialog({
         title: `Delete the "${cat.name}" tab?`,
-        text: `This tab has ${pluralize(ids.length, "quiz", "quizzes")}. They are not deleted: choose where they go. Their questions, answer keys and student results stay as they are.`,
-        field: { type: "select", label: `Move the ${pluralize(ids.length, "quiz", "quizzes")} to`, options: others, value: UNCATEGORIZED },
+        text: `Its ${pluralize(ids.length, "quiz", "quizzes")} will be moved, not deleted.`,
+        field: { type: "select", label: `Move the ${pluralize(ids.length, "quiz", "quizzes")} to`, options: others, value: others[0].value },
         okText: "Move quizzes and delete tab",
         danger: true,
         check: `Yes, delete the "${cat.name}" tab`
@@ -294,14 +297,14 @@ export class QuizAdmin {
       if (chosen === null) return;
       moveTo = chosen;
     } else {
-      const ok = await confirmDialog({ title: `Delete the "${cat.name}" tab?`, text: "The tab is empty. No quizzes or results are affected.", okText: "Delete tab", danger: true });
+      const ok = await confirmDialog({ title: `Delete the "${cat.name}" tab?`, text: "The tab is empty.", okText: "Delete tab", danger: true });
       if (!ok) return;
     }
     const list = await deleteCategory(cat.id, ids, moveTo);
     ids.forEach((id) => { const q = teacher.quizzes.get(id); if (q) q.categoryId = moveTo; });
     setCategories(list);
-    this.setTab(ids.length ? (moveTo || UNCATEGORIZED) : ALL);
-    appNotice(`Tab "${cat.name}" deleted.${ids.length ? ` ${pluralize(ids.length, "quiz was", "quizzes were")} moved to ${categoryName(moveTo, list)}.` : ""}`, "success");
+    this.setTab(ids.length && moveTo ? moveTo : ALL);
+    appNotice(`Tab "${cat.name}" deleted.${ids.length ? ` ${pluralize(ids.length, "quiz was", "quizzes were")} ${moveTo ? `moved to ${categoryName(moveTo, list)}` : "kept with no tab (see All quizzes)"}.` : ""}`, "success");
   }
 
   /** Asks for a tab and moves the quizzes there (only categoryId changes). */
@@ -310,22 +313,22 @@ export class QuizAdmin {
     if (!ids.length) return;
     const first = teacher.quizzes.get(ids[0]);
     const current = ids.length === 1 ? categoryOf(first, teacher.categories) : null;
-    const options = [...teacher.categories.map((c) => ({ value: c.id, label: c.name })), { value: UNCATEGORIZED, label: UNCATEGORIZED_NAME }];
+    const options = [...teacher.categories.map((c) => ({ value: c.id, label: c.name })), { value: UNCATEGORIZED, label: "No tab (only under All quizzes)" }];
     const fallback = this.tab !== ALL && this.tab !== current ? this.tab : options.find((o) => o.value !== current)?.value ?? UNCATEGORIZED;
     const to = await inputDialog({
       title: ids.length === 1 ? `Move "${first.title}"` : `Move ${ids.length} quizzes`,
-      text: teacher.categories.length ? "" : "You have no tabs yet. Create one with New tab first, or keep the quizzes in Uncategorized.",
+      text: teacher.categories.length ? "" : "No tabs yet. Create one with New tab first.",
       field: { type: "select", label: "Move to tab", options, value: fallback },
       okText: "Move"
     });
     if (to === null) return;
     const moving = ids.filter((id) => categoryOf(teacher.quizzes.get(id), teacher.categories) !== to);
-    if (!moving.length) { appNotice(`Already in ${categoryName(to, teacher.categories)}.`, "info"); return; }
+    if (!moving.length) { appNotice(to ? `Already in ${categoryName(to, teacher.categories)}.` : "These quizzes already have no tab.", "info"); return; }
     await moveQuizzes(moving, to);
     moving.forEach((id) => Object.assign(teacher.quizzes.get(id), { categoryId: to, updatedAt: new Date() }));
     this.selected.clear();
     this.renderList();
-    appNotice(`Moved ${pluralize(moving.length, "quiz", "quizzes")} to ${categoryName(to, teacher.categories)}.`, "success");
+    appNotice(to ? `Moved ${pluralize(moving.length, "quiz", "quizzes")} to ${categoryName(to, teacher.categories)}.` : `Removed ${pluralize(moving.length, "quiz", "quizzes")} from their tab. They are under All quizzes.`, "success");
   }
 
   // ------------------------------------------------------------ quiz list
@@ -376,7 +379,7 @@ export class QuizAdmin {
     if (!list.length) {
       const anyHere = [...teacher.quizzes.values()].some((q) => this.tab === ALL || categoryOf(q, teacher.categories) === this.tab);
       empty = !teacher.quizzes.size ? "No quizzes yet. Add a question bank file above."
-        : !anyHere ? (this.tab === ALL ? "No quizzes yet." : `No quizzes in this tab yet. Upload a question bank while this tab is selected, or use "Move to tab" on quizzes from another tab.`)
+        : !anyHere ? (this.tab === ALL ? "No quizzes yet." : "No quizzes in this tab yet.")
           : "No quizzes match these filters.";
     }
     this.$("list").innerHTML = shown.length ? shown.map((q) => this.quizRow(q)).join("") : `<tr><td colspan="9" class="empty">${escapeHtml(empty)}</td></tr>`;
@@ -415,7 +418,7 @@ export class QuizAdmin {
           <div class="small muted quiz-sub"><code>${id}</code>${q.merged ? ` · ${lessons.map((l) => escapeHtml(l.title)).join(" · ")}` : ""}</div>
         </td>
         <td class="nowrap">${gradeLabel(q.grade)}</td>
-        <td class="nowrap"><span class="${cat ? "" : "muted"}">${escapeHtml(categoryName(cat, teacher.categories))}</span></td>
+        <td class="nowrap">${cat ? escapeHtml(categoryName(cat, teacher.categories)) : '<span class="muted">—</span>'}</td>
         <td class="num">${q.questionCount ?? "—"}</td>
         <td class="num">${q.totalMarks ?? "—"}</td>
         <td>${status}</td>
@@ -448,7 +451,7 @@ export class QuizAdmin {
       else if (act === "archive") {
         const ok = await confirmDialog({
           title: `Archive "${quiz.title}"?`,
-          text: "The quiz is closed and hidden from the list and from students. Its questions, answer key and student records are kept. You can unarchive it at any time.",
+          text: "It is hidden from students. You can unarchive it later.",
           okText: "Archive quiz"
         });
         if (ok) await this.setStatus(quiz, { archived: true, active: false }, `"${quiz.title}" was archived. Choose Status: Archived to see it.`);
@@ -505,7 +508,7 @@ export class QuizAdmin {
   async deleteQuiz(quiz) {
     const res = await confirmDialog({
       title: `Delete "${quiz.title}"?`,
-      text: "The quiz, its questions and its answer key are permanently deleted. Student records for this quiz are kept, but they cannot be graded again unless you add the same question bank again with the same quiz ID. Archive the quiz instead if you may need it later.",
+      text: "This cannot be undone. Student records are kept.",
       okText: "Delete quiz",
       danger: true,
       check: "Yes, permanently delete this quiz"
@@ -522,7 +525,7 @@ export class QuizAdmin {
 
   async showAnswerKey(quiz) {
     const box = this.$("key");
-    box.innerHTML = '<div class="card"><div class="loading"><span class="spinner"></span> Loading answer key…</div></div>';
+    box.innerHTML = skeleton("table", { cols: 4, rows: 5 });
     box.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const key = await loadAnswerKey(quiz.id, { refresh: true });
@@ -580,7 +583,7 @@ export class QuizAdmin {
     const imp = this.imp;
     const grades = teacher.settings.grades;
     // New quizzes go to the selected tab unless the teacher picks another one here.
-    if (!imp.tabTouched || !this.tabExists(imp.categoryId)) imp.categoryId = this.tab === ALL ? UNCATEGORIZED : this.tab;
+    if (!imp.tabTouched || (imp.categoryId && !this.tabExists(imp.categoryId))) imp.categoryId = this.tab === ALL ? UNCATEGORIZED : this.tab;
     let html = "";
     if (imp.errors.length) html += `<div class="notice notice-error"><b>Some lessons could not be read:</b><ul>${imp.errors.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul></div>`;
     if (imp.warnings.length) html += `<div class="notice notice-warning"><ul>${imp.warnings.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul></div>`;
@@ -620,7 +623,7 @@ export class QuizAdmin {
         <label class="radio-card"><input type="radio" name="impMode" data-imp="mode" value="separate" ${imp.mode === "separate" ? "checked" : ""}>
           <span><b>Separate quizzes</b><br><span class="small muted">Each ticked lesson becomes its own quiz.</span></span></label>
         <label class="radio-card"><input type="radio" name="impMode" data-imp="mode" value="merge" ${imp.mode === "merge" ? "checked" : ""}>
-          <span><b>Merge into one quiz</b><br><span class="small muted">All ticked lessons (same grade) become one quiz. Each question remembers its lesson.</span></span></label>
+          <span><b>Merge into one quiz</b><br><span class="small muted">Ticked lessons become one quiz.</span></span></label>
       </div>
       <div class="field merge-title" ${imp.mode === "merge" ? "" : "hidden"}>
         <label for="impTitle">Title of the merged quiz</label>
@@ -631,9 +634,9 @@ export class QuizAdmin {
       <div class="field">
         <label for="impTab">Add the new quizzes to this tab</label>
         <select id="impTab" data-imp="tab">
-          ${[...teacher.categories.map((c) => [c.id, c.name]), [UNCATEGORIZED, UNCATEGORIZED_NAME]].map(([id, name]) => `<option value="${escapeHtml(id)}" ${id === imp.categoryId ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+          ${[...teacher.categories.map((c) => [c.id, c.name]), [UNCATEGORIZED, "No tab (only under All quizzes)"]].map(([id, name]) => `<option value="${escapeHtml(id)}" ${id === imp.categoryId ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
         </select>
-        <p class="hint">A quiz that replaces an existing one stays in its current tab.</p>
+        
       </div>
       <div class="field">
         <label for="impCollision">If a quiz with the same ID already exists</label>
@@ -725,8 +728,8 @@ export class QuizAdmin {
     const { quizzes, problems, warnings } = this.plan();
     const actionText = (p) => ({
       new: '<span class="badge badge-info">New quiz</span>',
-      copy: `<span class="badge badge-info">New quiz</span><div class="small muted">ID <code>${escapeHtml(p.base)}</code> is already used${p.existing ? ` by "${escapeHtml(p.existing.title)}"` : " in this list"}, so this one gets its own ID.</div>`,
-      replace: `<span class="badge badge-warning">Replaces "${escapeHtml(p.existing?.title || p.base)}"</span><div class="small error-text">Students who are in the middle of this quiz will get the new questions. Submitted work will show Needs regrading.</div>`
+      copy: `<span class="badge badge-info">New quiz</span><div class="small muted">Gets a new ID (<code>${escapeHtml(p.base)}</code> is taken).</div>`,
+      replace: `<span class="badge badge-warning">Replaces "${escapeHtml(p.existing?.title || p.base)}"</span><div class="small error-text">Submitted work will need regrading.</div>`
     })[p.action];
     let html = "";
     if (warnings.length) html += `<div class="notice notice-warning"><ul>${warnings.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul></div>`;
@@ -748,7 +751,7 @@ export class QuizAdmin {
     }
     const n = quizzes.length;
     const newCount = quizzes.filter((p) => p.action !== "replace").length;
-    if (newCount) html += `<p class="small muted">${newCount === n ? "These quizzes go" : `The ${pluralize(newCount, "new quiz goes", "new quizzes go")}`} to the <b>${escapeHtml(categoryName(this.imp.categoryId, teacher.categories))}</b> tab.</p>`;
+    if (newCount) html += `<p class="small muted">${newCount === n ? (this.imp.categoryId ? "These quizzes go" : "These quizzes are added") : `The ${pluralize(newCount, "new quiz", "new quizzes")} ${this.imp.categoryId ? (newCount === 1 ? "goes" : "go") : (newCount === 1 ? "is added" : "are added")}`} ${this.imp.categoryId ? ` to the <b>${escapeHtml(categoryName(this.imp.categoryId, teacher.categories))}</b> tab` : " in no tab (they show under All quizzes)"}.</p>`;
     html += `<div class="actions-row">
       <button type="button" class="btn btn-primary" data-imp="add" ${problems.length || !n ? "disabled" : ""}>Add ${pluralize(n, "quiz", "quizzes")}</button>
       <button type="button" class="btn" data-imp="cancel">Cancel</button></div>`;
@@ -773,7 +776,7 @@ export class QuizAdmin {
       }
       if (quizzes.some((p) => p.action === "replace")) {
         const names = quizzes.filter((p) => p.action === "replace").map((p) => `"${p.existing.title}"`).join(", ");
-        const ok = await confirmDialog({ title: "Replace existing quizzes?", text: `${names} will get new questions and a new answer key. Student records are kept.`, okText: "Replace", danger: true });
+        const ok = await confirmDialog({ title: "Replace existing quizzes?", text: `${names} will get new questions. Student records are kept.`, okText: "Replace", danger: true });
         if (!ok) { this.renderPlan(); return; }
       }
       btn.textContent = "Saving…";
@@ -804,10 +807,10 @@ export class QuizAdmin {
       clearKeyCache();
       const names = quizzes.map((p) => p.quiz.title);
       const opened = this.imp.open;
-      const tabName = categoryName(this.imp.categoryId, teacher.categories);
+      const tabName = this.imp.categoryId ? categoryName(this.imp.categoryId, teacher.categories) : "none (under All quizzes)";
       this.resetImport();
       await reloadQuizzes();
-      appNotice(`Added ${pluralize(saved, "quiz", "quizzes")}: ${names.join(", ")}. Tab: ${tabName}.${opened ? "" : " Press Open next to a quiz when students should see it."}`, "success");
+      appNotice(`Added ${pluralize(saved, "quiz", "quizzes")}: ${names.join(", ")}. Tab: ${tabName}.${opened ? "" : " Press Open to show it to students."}`, "success");
     } catch (err) {
       console.error(err);
       const partial = saved ? ` ${pluralize(saved, "quiz was", "quizzes were")} saved before the error; the rest were not.` : " Nothing was saved.";
@@ -831,7 +834,7 @@ function editDialog(quiz, grades, defaultPass) {
         <p class="small muted">Only students of this grade see the quiz.</p></div>
       <div class="field"><label for="eqDesc">Information for students (optional)</label><textarea id="eqDesc" rows="3" maxlength="500"></textarea></div>
       <div class="field"><label for="eqPass">Pass mark % (leave empty for the school default, ${escapeHtml(defaultPass)}%)</label><input type="number" id="eqPass" min="1" max="100"></div>
-      <p class="small muted">To change the questions, add the question bank file again on this tab and choose "Replace the existing quiz".</p>
+      <p class="small muted">To change questions, upload the file again and choose Replace.</p>
       <p class="small error-text" data-err></p>
       <div class="actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
     </form>`;

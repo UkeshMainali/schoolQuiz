@@ -376,3 +376,27 @@ if (typeof document !== "undefined") {
     }
   }, true);
 }
+
+// ------------------------------------------------------------- skeletons
+// Grey placeholder shapes shown while data loads, so a page never sits blank.
+
+const bar = (w, cls = "") => `<span class="skel ${cls}" style="width:${w}%"></span>`;
+const widths = [72, 48, 30, 60, 38, 54, 44, 66];
+
+/** Placeholder table rows (<tr>) for a tbody with `cols` columns. */
+export function skeletonRows(cols, rows = 6) {
+  return Array.from({ length: rows }, (_, r) =>
+    `<tr class="skel-row" aria-hidden="true">${Array.from({ length: cols }, (_, c) => `<td>${bar(widths[(r + c) % widths.length])}</td>`).join("")}</tr>`).join("");
+}
+
+/** Placeholder block. kind: "table" | "list" | "cards" | "page" | "quiz". */
+export function skeleton(kind = "table", { rows = 6, cols = 6 } = {}) {
+  const sr = '<span class="sr-only">Loading…</span>';
+  const table = `<div class="card skel-card"><div class="skel-head">${bar(28, "skel-title")}${bar(14)}</div>
+    <table class="data-table skel-table"><tbody>${skeletonRows(cols, rows)}</tbody></table></div>`;
+  const cards = `<div class="skel-cards">${Array.from({ length: 4 }, () => `<div class="card skel-card">${bar(50)}${bar(30, "skel-title")}</div>`).join("")}</div>`;
+  const list = `<div class="skel-list">${Array.from({ length: rows }, (_, i) => `<div class="card skel-card skel-item"><div>${bar(widths[i % 8], "skel-title")}${bar(widths[(i + 3) % 8] / 2)}</div>${bar(18, "skel-btn")}</div>`).join("")}</div>`;
+  const quiz = `<div class="card skel-card">${bar(40, "skel-title")}${bar(70)}${Array.from({ length: 4 }, () => `<div class="skel-option">${bar(55)}</div>`).join("")}</div>`;
+  const body = { table, cards, list, quiz, page: `${bar(30, "skel-title skel-h1")}${cards}${table}` }[kind] || table;
+  return `<div class="skeleton" role="status" aria-busy="true">${sr}${body}</div>`;
+}

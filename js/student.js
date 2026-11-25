@@ -6,7 +6,7 @@ import { loadActiveQuizzes, checkAttempt } from "./submission.js";
 import {
   loadSettings, sectionsFor, validateRoll, rollLimit, normalizeName, makeAttemptId, escapeHtml,
   friendlyError, showNotice, hideNotice, storage, formatDateTime, pluralize,
-  ACTIVE_KEY, PENDING_KEY, PROFILE_KEY
+  ACTIVE_KEY, skeleton, PENDING_KEY, PROFILE_KEY
 } from "./utilities.js";
 
 const $ = (id) => document.getElementById(id);
@@ -109,7 +109,7 @@ async function showHome() {
   $("homeView").hidden = false;
   $("profileName").textContent = profile.name;
   $("profileMeta").textContent = `Roll no. ${profile.roll} · Grade ${profile.grade} · Section ${profile.section}`;
-  $("quizList").innerHTML = '<div class="loading"><span class="spinner"></span> Loading quizzes…</div>';
+  $("quizList").innerHTML = skeleton("list", { rows: 4 });
   $("progressText").textContent = "";
   try {
     quizzes = await loadActiveQuizzes(profile.grade);
