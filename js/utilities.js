@@ -8,8 +8,9 @@ export const DEFAULT_SETTINGS = {
   // Sections are stored per grade: { "6": ["A", "B"], "7": ["Manaslu"] }.
   sectionsByGrade: { "6": ["A", "B", "C", "D"] },
   passPercent: 40,
-  // Optional expected class sizes, e.g. { "6-A": 35 }, used to show how many
-  // students have not submitted yet.
+  // Optional number of students per section, e.g. { "6-A": 35 }. It is the
+  // highest roll number students of that section may enter, and is used to
+  // show how many students have not submitted yet.
   classSizes: {}
 };
 
@@ -72,6 +73,35 @@ export function normalizeRoll(value) {
   return String(parseInt(digits, 10));
 }
 
+/**
+ * Highest roll number allowed in one section: the "Students" number set in
+ * School settings (classSizes["6-A"]), or null when none is set.
+ */
+export function rollLimit(settings, grade, section) {
+  const n = Number(settings?.classSizes?.[`${grade}-${section}`]);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Checks a typed roll number against the section's limit.
+ * Returns { roll: "12", error: "" } or { roll: null, error: "message" }.
+ * Accepts only whole numbers from 1 (leading zeros are dropped: "07" -> "7").
+ */
+export function validateRoll(value, settings, grade, section) {
+  const raw = String(value ?? "").trim();
+  const max = grade && section ? rollLimit(settings, grade, section) : null;
+  const range = max ? ` This section allows roll numbers from 1 to ${max}.` : "";
+  if (!raw) return { roll: null, error: "Please enter your roll number." };
+  if (!/^\d+$/.test(raw)) {
+    return { roll: null, error: `Invalid roll number. Use a whole number with digits only, for example 12.${range}` };
+  }
+  if (raw.length > 6) return { roll: null, error: `Invalid roll number.${range || " Use at most 6 digits."}` };
+  const n = parseInt(raw, 10);
+  if (n < 1) return { roll: null, error: `Invalid roll number. Roll numbers start at 1.${range}` };
+  if (max && n > max) return { roll: null, error: `Invalid roll number.${range}` };
+  return { roll: String(n), error: "" };
+}
+
 /** Collapses spaces and capitalises each word: "  ram   sharma " -> "Ram Sharma". */
 export function normalizeName(value) {
   return String(value ?? "")
@@ -111,6 +141,11 @@ export function formatDateTime(value) {
   return d.toLocaleString(undefined, {
     year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"
   });
+}
+
+export function formatDate(value) {
+  const d = toDate(value);
+  return d ? d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—";
 }
 
 export function round(value, digits = 1) {
@@ -243,6 +278,64 @@ export function confirmDialog({ title, text, okText = "OK", danger = false, chec
     document.addEventListener("keydown", onKey);
     backdrop.querySelector(".cd-cancel").addEventListener("click", () => done(false));
     ok.addEventListener("click", () => done({ ok: true, option: option ? backdrop.querySelector(".cd-option").checked : false }));
+  });
+}
+
+/**
+ * Small form dialog with one text field or one dropdown.
+ *   field: { type: "text", label, value, maxLength } or { type: "select", label, value, options: [{ value, label }] }
+ *   validate(value) returns an error message or "".
+ *   check: optional confirmation checkbox text that must be ticked first.
+ * Resolves with the entered/chosen value, or null when cancelled.
+ */
+export function inputDialog({ title, text = "", field, okText = "OK", danger = false, check = "", validate = () => "" }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  const control = field.type === "select"
+    ? `<select id="idField">${field.options.map((o) => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("")}</select>`
+    : `<input type="text" id="idField" maxlength="${field.maxLength || 60}" autocomplete="off">`;
+  backdrop.innerHTML = `
+    <form class="modal" role="dialog" aria-modal="true" aria-labelledby="idTitle" novalidate>
+      <h2 id="idTitle"></h2>
+      ${text ? '<p class="cd-text"></p>' : ""}
+      <div class="field"><label for="idField"></label>${control}<div class="error-text" hidden></div></div>
+      ${check ? '<label class="check cd-check-label"><input type="checkbox" class="cd-check"> <span></span></label>' : ""}
+      <div class="actions">
+        <button type="button" class="btn cd-cancel">Cancel</button>
+        <button type="submit" class="btn ${danger ? "btn-danger-solid" : "btn-primary"} cd-ok"></button>
+      </div>
+    </form>`;
+  const q = (sel) => backdrop.querySelector(sel);
+  q("#idTitle").textContent = title;
+  if (text) q(".cd-text").textContent = text;
+  q('label[for="idField"]').textContent = field.label;
+  q("#idField").value = field.value ?? "";
+  const ok = q(".cd-ok");
+  ok.textContent = okText;
+  if (check) {
+    q(".cd-check + span").textContent = check;
+    ok.disabled = true;
+    q(".cd-check").addEventListener("change", (e) => { ok.disabled = !e.target.checked; });
+  }
+  document.body.appendChild(backdrop);
+  if (field.type === "select") setTimeout(() => (backdrop.querySelector(".cselect-button") || q("#idField")).focus(), 0);
+  else { q("#idField").focus(); q("#idField").select(); }
+  return new Promise((resolve) => {
+    const done = (value) => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(value); };
+    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".cselect.is-open")) done(null); };
+    document.addEventListener("keydown", onKey);
+    q(".cd-cancel").addEventListener("click", () => done(null));
+    q("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (ok.disabled) return;
+      const value = field.type === "select" ? q("#idField").value : q("#idField").value.trim();
+      const err = validate(value);
+      const box = q(".error-text");
+      box.textContent = err || "";
+      box.hidden = !err;
+      q("#idField").classList.toggle("invalid", !!err);
+      if (!err) done(value);
+    });
   });
 }
 

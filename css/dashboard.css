@@ -392,3 +392,45 @@ td .cselect .cselect-button { min-height: var(--control-sm); font-size: 0.85rem;
   .app-main { padding: 24px 16px 56px; }
   .tab:hover:not(.active) { padding-left: 12px; }
 }
+
+/* ---------------------------------------------------------------- Phase 3 */
+/* Quiz tabs: one scrollable row, so many tabs never break the layout. */
+.qtabs-bar { display: flex; align-items: center; gap: 8px; margin: -4px -20px 18px; padding: 0 20px; border-bottom: 1px solid var(--border); }
+.qtabs { display: flex; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; flex: 1 1 auto; min-width: 0; scroll-padding: 0 12px; }
+.qtab {
+  display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; height: 44px; padding: 0 12px;
+  border: none; background: none; font: inherit; font-size: 0.9rem; font-weight: 600; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer; white-space: nowrap;
+  transition: color var(--t-fast), border-color var(--t-fast), background-color var(--t-fast);
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+}
+.qtab:hover { color: var(--text); background: var(--hover); }
+.qtab:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ring); }
+.qtab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.qtab.active .chip-count { background: var(--primary-soft, #e8efff); color: var(--primary); }
+.qtab-name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.qtab-default .qtab-name { font-style: italic; }
+.qtabs-add { flex: 0 0 auto; }
+.qtab-head { margin-bottom: 14px; }
+.qtab-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; min-width: 0; }
+.qtab-title h2 { overflow-wrap: anywhere; }
+.qtab-actions:empty { display: none; }
+.quiz-table td code { font-size: 0.78rem; }
+.quiz-table .quiz-title { overflow-wrap: anywhere; }
+.data-table th[data-sort]:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--ring); border-radius: var(--radius-xs); }
+.settings-note { margin: -6px 0 16px; max-width: 70ch; }
+@media (max-width: 600px) {
+  .table-card .qtabs-bar { margin: -2px -16px 16px; padding: 0 12px; }
+  .qtab { height: 42px; padding: 0 10px; }
+  .qtabs-add .btn-text { display: none; }
+  .qtabs-add { width: var(--control-sm); padding: 0; justify-content: center; }
+}
+/* Quiz table: keep the title readable; scroll sideways on narrow screens instead of squeezing. */
+.quiz-table { min-width: 900px; }
+.quiz-table td:nth-child(2) { min-width: 240px; }
+.quiz-table .quiz-title .badge { margin-left: 6px; vertical-align: 1px; }
+.quiz-table .quiz-sub { margin-top: 2px; overflow-wrap: anywhere; }
+.qtabs { position: relative; }
+.qtabs-bar.fade-right .qtabs { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+.qtabs-bar.fade-left .qtabs { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+.qtabs-bar.fade-left.fade-right .qtabs { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }

@@ -51,8 +51,10 @@ classroom-quiz/
 │   ├── backupImport.js   Import a backup file with preview and duplicate check
 │   ├── analytics.js      Calculations (Analysis tab, overall and average per student)
 │   ├── analyticsView.js  Analysis tab
-│   ├── quizAdmin.js      Quizzes tab: add (separate or merged), edit, archive, delete
-│   ├── settingsAdmin.js  School settings tab: grades, sections per grade, class sizes
+│   ├── quizAdmin.js      Quizzes tab: quiz tabs, sortable quiz table, add (separate or merged), edit, move, archive, delete
+│   ├── quizCategories.js Quiz tabs: load, create, rename, delete (moving quizzes first), move quizzes
+│   ├── tableSort.js      Column sorting shared by every dashboard table
+│   ├── settingsAdmin.js  School settings tab: grades, sections per grade, students per section (highest roll number)
 │   ├── result.js         result.html logic
 │   └── studentHistory.js Student history tab: find students, one student's history, history prints
 ├── data/
@@ -76,8 +78,9 @@ classroom-quiz/
 | Collection | Contents | Who can read | Who can write |
 |---|---|---|---|
 | `teachers/{uid}` | One document per authorised teacher | That teacher only | Nobody from the website (you add it in the console) |
-| `settings/school` | Grades, sections of each grade, pass mark, class sizes | Any signed-in user | Teacher |
-| `quizzes/{quizId}` | Quiz list entry: title, grade, question count, marks, lessons, open/closed, archived. **No questions, no answers.** | Students: open quizzes only. Teacher: all | Teacher |
+| `settings/school` | Grades, sections of each grade, pass mark, students per section (`classSizes`, also the highest roll number) | Any signed-in user | Teacher |
+| `settings/quizCategories` | The quiz tabs: `{ categories: [{ id, name }] }`, in display order | Any signed-in user (names only) | Teacher |
+| `quizzes/{quizId}` | Quiz list entry: title, grade, question count, marks, lessons, open/closed, archived, `categoryId` (its tab). **No questions, no answers.** | Students: open quizzes only. Teacher: all | Teacher |
 | `quizContent/{quizId}` | The questions and options. **No correct answers.** | Students: only while the quiz is open. Teacher: all | Teacher |
 | `answerKeys/{quizId}` | Correct answers, accepted short answers, explanations, pass mark | **Teacher only** | Teacher |
 | `attempts/{attemptId}` | Student details, question order, answers, warnings, timestamps, review status | The student who created it, and the teacher | The student (until submitted). The teacher can only set the review status, copy and delete. |
@@ -233,7 +236,7 @@ JavaScript modules on `file://` pages.
 ### 3.6 First use
 
 1. Open `/dashboard.html` and sign in as the teacher.
-2. **School settings**: add your grades, and the sections of each grade (sections can have names like *Mount Everest*). Set the default pass mark, and optionally the class size of each section, to see how many students have not submitted.
+2. **School settings**: add your grades, and the sections of each grade (sections can have names like *Mount Everest*). Set the default pass mark, and optionally the number of students in each section. That number is the highest roll number students of the section can enter (40 allows 1 to 40), and it also shows how many students have not submitted. Leave it empty for no limit.
 3. **Quizzes**: choose your question-bank files, pick the grade for each lesson, choose separate quizzes or a merged quiz, tick **Open the new quizzes for students now**, and press **Add**.
 4. Give students the site address.
 
@@ -312,12 +315,34 @@ you choose, so the answers stay on your computer and in the teacher-only
 
 ### Managing quizzes
 
-The quiz list can be searched by title and filtered by grade, and shows a
-*Merged* or *Individual* badge, the question count and the status. For each
-quiz: **Open / Close**, **Edit** (title, grade, description for students,
-pass mark), **View answer key**, **Archive / Unarchive** (an archived quiz is
-closed and hidden, nothing is deleted) and **Delete**. To change the questions
-of a quiz, add the file again and choose *Replace*.
+**Tabs.** The row at the top of the quiz list holds your own tabs (for
+example *Examinations*, *Practice tests*), plus *All quizzes* and
+*Uncategorized*. **New tab** creates one; the **⋯** button next to a tab's
+name renames or deletes it. Tab names are saved in Firestore, so they are the
+same after a refresh, after signing in again and on another computer.
+
+- Quizzes from before tabs existed, and quizzes whose tab was deleted, are in
+  *Uncategorized*. Nothing needs migrating.
+- **Upload into a tab:** open the tab, then choose the files. Step 3 of the
+  preview shows the tab the new quizzes go to, and you can pick another one.
+  A quiz that *replaces* an existing one stays in its current tab.
+- **Move quizzes:** **⋯ → Move to tab** on a row, or tick several quizzes and
+  press **Move to tab** in the bar above the table. Only the quiz's tab
+  changes; its ID, grade, lessons, questions, answer key and student records
+  stay as they are.
+- **Deleting a tab** never deletes quizzes. An empty tab asks for a simple
+  confirmation. A tab with quizzes asks where they should go (another tab or
+  Uncategorized) and needs a tick before it is deleted.
+
+**The table** can be searched by title or ID and filtered by grade and status
+(open, closed, archived), inside the chosen tab. Click a column heading to
+sort by it and again to reverse; the arrow shows the sorted column. Sorting
+applies to the whole filtered list, not just the rows on screen (the table
+shows 200 rows at a time with *Show more*). For each quiz: **Open / Close**,
+**Edit** (title, grade, description for students, pass mark), and in the
+**⋯** menu **Move to tab**, **View answer key**, **Archive / Unarchive** (an
+archived quiz is closed and hidden, nothing is deleted) and **Delete**. To
+change the questions of a quiz, add the file again and choose *Replace*.
 
 ---
 
@@ -469,6 +494,7 @@ real `firestore.rules`, using headless Chromium, on 23 November 2026:
 - **Phase 2: reports and history (49 checks):** three quizzes with different totals; one student with a low quiz, a high quiz, an earlier attempt and a declined attempt, a second student with two name spellings and an in-progress attempt, and a student with the same name in another section. Checked: 3 groups for 7 attempts; same name in another section kept separate; name spellings merged; overall 71.4% (weighted) and average 57.5% (mean); declined, earlier and in-progress attempts listed but not counted; results print without answers; answer sheets with all 46 questions; long question and multi-line answer printed; individual quiz report with the summary first; summary CSV columns, one row per attempt, quiz title with comma and quotes; detailed CSV, one row per question, multi-line answer with quotes and comma read back exactly, stable IDs; export of a selection; Student history tab: list, search by name and roll, section filter, detail with overall and average, print of one student with answers and of all students; history links, old `student.html` links and the Results row link; no horizontal page scroll at phone and tablet width. The PDFs were checked by eye.
 - **Design overhaul (18 checks), plus every suite above re-run after it:** no browser dropdown or date field is visible; the styled dropdown opens, filters the table, keeps the real field's value and closes with Escape; Clear resets the dropdown and date labels; picking a day in the date picker filters by date; menus close on an outside click; dropping a file on the picker opens the import preview; Analysis switches views; the student's section dropdown works; Show password works. No sideways page scroll on any dashboard tab at phone and tablet width.
 - **Header, icons and key locking (5 checks), plus every suite above re-run after it:** keys work normally before the quiz starts; once it starts F1/F5/F11/F12, Esc, Tab, Alt+Tab, Alt, the Windows key, Home/End, Backspace/Delete and Ctrl+C/F/T/P are blocked; Backspace, Delete, Home/End and Ctrl+Z/A/arrows still work in a text box, and Backspace really deletes typed text; copy/paste, F-keys and Tab stay blocked inside the box. These use simulated key presses in Chromium; the Keyboard Lock behaviour for the real Windows key needs a Windows PC to confirm. No sideways scroll on the homepage or About page at 390px and 360px.
+- **Phase 3 (83 checks in the browser, 19 more security-rule checks), plus every suite above re-run after it:** create three tabs (saved in Firestore, shown in order), duplicate and reserved names refused, rename, move one quiz (only `categoryId` changes, no duplicate records), move two at once, tab shows only its quizzes, empty-tab message, upload into the selected tab and into a tab picked in the preview, delete an empty tab, delete a tab with quizzes (confirmation tick required, cancel keeps it, quizzes moved to the chosen tab, none deleted, results untouched), tabs kept after refresh, after signing out and in, and in a second browser; quiz table sorted by title both ways, question count, tab, created date and grade, search + grade + status filters combined with sorting, Open/Close still act on the right quiz after sorting; Student history sorted by name, roll (numeric), section, overall and average % with empty values last in both directions, quizzes attempted, last submitted, search + sort, keyboard sorting, and one student's attempts by %, date and quiz; settings refuse a decimal limit and save 6-A = 5; the student form shows "roll numbers 1 to 5", accepts 1 and 5, refuses 6, 0, -2, 2.5, letters and empty, will not continue with 6, re-checks when the section changes, accepts 6 after the limit is raised to 8 (fresh settings, no reload), blocks starting a quiz after the limit is lowered to 4, the quiz page itself refuses a roll above the limit and creates no attempt, a submit is refused after the limit is lowered (answers kept, attempt unchanged) and succeeds once it is raised; existing records untouched. Rules: rolls 1 and 40 accepted for a limit of 40, 41, 0, 07, -3 and 4.5 refused, other sections' limits used, no limit when none is set or the settings document is missing, submit refused above a lowered limit and allowed after it is raised; only the teacher can change tabs or move quizzes.
 - **Netlify:** the Phase 2 suite (49 checks) was run again through Netlify's local server (`netlify dev`) with `netlify.toml` after these changes, and all passed. (The version 2 suite passed there in the version 2 round.) `/data/…`, `README.md` and `firestore.rules` return 404.
 
 **Not tested:** the live Firebase project (only the emulators), real phones
@@ -549,6 +575,14 @@ Version 1 links still work: `index.html`, `quiz.html`, `dashboard.html` and
 - **Two CSV exports:** summary (one row per attempt) and detailed (one row per question).
 - **Look and feel:** shorter help texts; one height for buttons and fields; the same corner radius, badge and status colours everywhere; table rows highlight on hover; menus stay on screen on phones; a bug that made the Results page scroll sideways on tablets is fixed.
 - **No data changes:** Firestore collections, documents and security rules are unchanged. Just upload the new files.
+
+### Phase 3 (quiz tabs, sortable tables, roll number limits)
+
+- **Quiz tabs:** see *Managing quizzes* in section 4. Tabs are stored in `settings/quizCategories`; each quiz has a `categoryId` field. Tab edits run in a transaction so two open dashboards cannot overwrite each other.
+- **One sorting system:** `js/tableSort.js` is used by Results, Archive, Quizzes and both Student history tables. Numbers sort as numbers, dates by time, text naturally (Lesson 2 before Lesson 10); empty values always go last; headings can be sorted with the keyboard (Tab to the heading, then Enter).
+- **Student history:** every data column sorts (student, roll, grade, section, quizzes, counted, overall %, average %, and a new *Last submitted* column), and so does one student's list of attempts (quiz, name used, submitted, status, marks, %, left).
+- **Roll number limits:** the *Students* number of a section in School settings is now enforced. With 40, roll numbers 1 to 40 are accepted; 0, 41, negative numbers, decimals, letters and empty values are refused with a message such as "Invalid roll number. This section allows roll numbers from 1 to 40." It is checked while typing, when the details are saved, when a quiz is started (with settings read fresh) and again before the quiz is submitted, and **the security rules check it too** when an attempt is created and when it is submitted. Lowering a limit never changes or deletes existing records; a student above the new limit cannot start or submit until the teacher raises it or the student corrects the roll number, and their saved answers are kept meanwhile.
+- **Upgrade:** publish the new `firestore.rules` (section 3.4). No data migration and no index are needed. Roll number 0 is no longer accepted for new attempts.
 
 ### Design overhaul
 

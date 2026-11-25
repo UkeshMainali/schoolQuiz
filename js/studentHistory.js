@@ -7,11 +7,27 @@ import { queryAttempts, fetchResults } from "./records.js";
 import { toRow } from "./recordsView.js";
 import { groupByStudent, performance, studentKey } from "./analytics.js";
 import { teacher, appNotice, onTeacherChange } from "./teacherState.js";
+import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import { buildReport, printHtml } from "./print.js";
 import { escapeHtml, formatDateTime, friendlyError, sectionsFor, normalizeRoll, pluralize, storage } from "./utilities.js";
 
 const MAX_RECORDS = 3000;
 const fmt = (v, suffix = "") => (v === null || v === undefined ? "—" : `${v}${suffix}`);
+
+// Sort values of the student list (one row per student).
+const GROUP_VALUE = {
+  name: (g) => g.names.join(" / "),
+  rollNum: (g) => Number(g.rollNo),
+  grade: (g) => g.grade,
+  section: (g) => g.section,
+  attempted: (g) => g.perf.attempted,
+  counted: (g) => g.perf.counted,
+  overall: (g) => g.perf.overallPercent,
+  average: (g) => g.perf.averagePercent,
+  latestMs: (g) => g.latestMs
+};
+const GROUP_DESC_FIRST = ["attempted", "counted", "overall", "average", "latestMs"];
+const DETAIL_DESC_FIRST = ["submittedMs", "obtained", "percentage", "focusLossCount"];
 
 
 export class HistoryView {
@@ -20,6 +36,8 @@ export class HistoryView {
     this.cache = new Map();
     this.rows = [];
     this.groups = [];
+    this.sort = { key: "section", dir: "asc" }; // then roll number (same order as before)
+    this.detailSort = { key: "quizTitle", dir: "asc" };
     const saved = storage.get("cq_history_scope") || {};
     this.scope = { grade: saved.grade || "", section: saved.section || "", archive: saved.archive !== false };
     this.el.innerHTML = `
@@ -108,7 +126,11 @@ export class HistoryView {
       const { rows, capped } = await this.fetch(scope, this.scope.archive);
       this.rows = rows;
       this.capped = capped;
-      this.groups = groupByStudent(rows).map((g) => ({ ...g, perf: performance(g.rows) }));
+      this.groups = groupByStudent(rows).map((g) => ({
+        ...g,
+        perf: performance(g.rows),
+        latestMs: Math.max(0, ...g.rows.map((r) => r.submittedMs || 0)) || null
+      }));
       this.renderList();
     } catch (err) {
       console.error(err);
@@ -117,11 +139,15 @@ export class HistoryView {
     }
   }
 
+  /** Students matching the search, sorted by the chosen column (the whole filtered list, not just what is on screen). */
   visibleGroups() {
     const term = this.$("search").value.trim().toLowerCase();
-    if (!term) return this.groups;
-    const roll = normalizeRoll(term);
-    return this.groups.filter((g) => (roll && g.rollNo === roll) || g.names.some((n) => n.toLowerCase().includes(term)));
+    const roll = term ? normalizeRoll(term) : null;
+    const list = term ? this.groups.filter((g) => (roll && g.rollNo === roll) || g.names.some((n) => n.toLowerCase().includes(term))) : this.groups;
+    return sortRows(list, this.sort, {
+      value: (g, k) => GROUP_VALUE[k](g),
+      tieBreak: (a, b) => Number(a.rollNo) - Number(b.rollNo)
+    });
   }
 
   renderList() {
@@ -148,7 +174,7 @@ export class HistoryView {
         </div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Student</th><th class="num">Roll</th><th>Grade</th><th>Section</th><th class="num">Quizzes</th><th class="num">Counted</th><th class="num" title="Total marks ÷ total possible">Overall</th><th class="num" title="Mean of quiz percentages">Average</th><th></th></tr></thead>
+            <thead><tr><th data-sort="name">Student</th><th data-sort="rollNum" class="num">Roll</th><th data-sort="grade">Grade</th><th data-sort="section">Section</th><th data-sort="attempted" class="num" title="Quizzes attempted">Quizzes</th><th data-sort="counted" class="num" title="Graded, not declined, latest attempt per quiz">Counted</th><th data-sort="overall" class="num" title="Total marks ÷ total possible">Overall</th><th data-sort="average" class="num" title="Mean of quiz percentages">Average</th><th data-sort="latestMs">Last submitted</th><th class="actions-col"></th></tr></thead>
             <tbody>${list.map((g) => `
               <tr>
                 <td class="name-cell"><button type="button" class="link-btn" data-open="${escapeHtml(g.key)}">${escapeHtml(g.names.join(" / "))}</button></td>
@@ -159,11 +185,13 @@ export class HistoryView {
                 <td class="num">${g.perf.counted}</td>
                 <td class="num">${fmt(g.perf.overallPercent, "%")}</td>
                 <td class="num">${fmt(g.perf.averagePercent, "%")}</td>
+                <td class="small nowrap">${g.latestMs ? escapeHtml(formatDateTime(new Date(g.latestMs))) : "—"}</td>
                 <td class="col-actions"><button type="button" class="btn btn-small" data-open="${escapeHtml(g.key)}">Open</button></td>
-              </tr>`).join("") || '<tr><td colspan="9" class="empty">No student matches this search.</td></tr>'}</tbody>
+              </tr>`).join("") || '<tr><td colspan="10" class="empty">No student matches this search.</td></tr>'}</tbody>
           </table>
         </div>
       </div>`;
+    paintSortHeaders(box.querySelector("table"), this.sort);
   }
 
   // ---------------------------------------------------------- one student
@@ -188,8 +216,11 @@ export class HistoryView {
 
   renderDetail(student, rows) {
     const box = this.$("detail");
-    this.detailRows = [...rows].sort((a, b) =>
-      String(a.quizTitle).localeCompare(String(b.quizTitle), undefined, { numeric: true }) || ((a.submittedMs || Infinity) - (b.submittedMs || Infinity)));
+    this.detailStudent = student;
+    this.detailAll = rows;
+    this.detailRows = sortRows(rows, this.detailSort, {
+      tieBreak: (a, b) => String(a.quizTitle).localeCompare(String(b.quizTitle), undefined, { numeric: true }) || ((a.submittedMs || Infinity) - (b.submittedMs || Infinity))
+    });
     const back = '<button type="button" class="btn btn-small btn-back" data-act="back">← All students</button>';
     if (!rows.length) {
       box.innerHTML = `<div class="card">${back}<p class="empty">No records for roll ${escapeHtml(student.rollNo)}, Grade ${escapeHtml(student.grade)}, Section ${escapeHtml(student.section)}.</p></div>`;
@@ -238,7 +269,7 @@ export class HistoryView {
       <section class="card table-card">
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Quiz</th><th>Name used</th><th>Submitted</th><th>Status</th><th class="num">Marks</th><th class="num">%</th><th class="num" title="Times the student left the quiz page">Left</th><th></th></tr></thead>
+            <thead><tr><th data-sort="quizTitle">Quiz</th><th data-sort="studentName">Name used</th><th data-sort="submittedMs">Submitted</th><th data-sort="statusOrder">Status</th><th data-sort="obtained" class="num">Marks</th><th data-sort="percentage" class="num">%</th><th data-sort="focusLossCount" class="num" title="Times the student left the quiz page">Left</th><th class="actions-col"></th></tr></thead>
             <tbody>${this.detailRows.map((r) => `<tr class="${perf.countedIds.has(r.id) ? "" : "row-muted"}">
               <td>${escapeHtml(r.quizTitle)}${!perf.countedIds.has(r.id) ? `<div class="small muted">Not counted: ${escapeHtml(perf.notCounted(r).toLowerCase())}</div>` : ""}</td>
               <td>${escapeHtml(r.studentName)}</td>
@@ -252,9 +283,21 @@ export class HistoryView {
           </table>
         </div>
       </section>`;
+    paintSortHeaders(box, this.detailSort);
   }
 
   async onClick(e) {
+    const th = e.target.closest("th[data-sort]");
+    if (th) {
+      if (this.current) {
+        this.detailSort = nextSort(this.detailSort, th.dataset.sort, DETAIL_DESC_FIRST);
+        this.renderDetail(this.detailStudent, this.detailAll);
+      } else {
+        this.sort = nextSort(this.sort, th.dataset.sort, GROUP_DESC_FIRST);
+        this.renderList();
+      }
+      return;
+    }
     const open = e.target.closest("[data-open]");
     if (open) {
       const g = this.groups.find((x) => x.key === open.dataset.open);

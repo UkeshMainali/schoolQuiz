@@ -12,12 +12,11 @@
   <link rel="stylesheet" href="css/quiz.css">
 </head>
 <body>
-<body>
   <header class="site-header">
     <div class="inner">
       <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">CQ</span>Classroom Quiz</a>
       <nav class="header-actions" aria-label="Site">
-        <!-- <a class="btn btn-ghost btn-header" href="about.html" data-icon="circle-info" aria-label="About"><span class="btn-text">About</span></a> -->
+        <a class="btn btn-ghost btn-header" href="about.html" data-icon="circle-info" aria-label="About"><span class="btn-text">About</span></a>
         <a class="btn btn-header btn-header-primary" href="dashboard.html" data-icon="chalkboard-user" aria-label="Teacher login"><span class="btn-text">Teacher login</span></a>
       </nav>
     </div>
@@ -34,13 +33,14 @@
       <form id="profileForm" novalidate>
         <div class="field">
           <label for="fullName">Full name</label>
-          <input type="text" id="fullName" autocomplete="name" maxlength="80" placeholder="e.g. Ukesh Mainali" required>
+          <input type="text" id="fullName" autocomplete="name" maxlength="80" placeholder="e.g. Ram Sharma" required>
           <div class="error-text" data-error-for="fullName" hidden></div>
         </div>
         <div class="field">
           <label for="rollNo">Roll number</label>
-          <input type="text" id="rollNo" inputmode="numeric" maxlength="6" placeholder="e.g. 45" required>
-          <div class="error-text" data-error-for="rollNo" hidden></div>
+          <input type="text" id="rollNo" inputmode="numeric" maxlength="6" placeholder="e.g. 12" required aria-describedby="rollHint">
+          <div class="hint" id="rollHint" hidden></div>
+          <div class="error-text" data-error-for="rollNo" hidden role="alert"></div>
         </div>
         <div class="row">
           <div class="field">
@@ -70,7 +70,7 @@
         </div>
         <div class="profile-actions">
           <button type="button" id="editProfileBtn" class="btn btn-small">Change details</button>
-          <button type="button" id="switchStudentBtn" class="btn btn-small">Switch student</button>
+          <button type="button" id="switchStudentBtn" class="btn btn-small">Not you? Switch student</button>
         </div>
       </div>
 

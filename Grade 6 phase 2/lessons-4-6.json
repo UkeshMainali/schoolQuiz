@@ -1,0 +1,676 @@
+{
+  "schemaVersion": "1.0",
+  "title": "Lessons 4 6",
+  "description": "Multiple-choice question bank. Each question has four options and one correct answer.",
+  "totalQuestions": 26,
+  "lessons": [
+    {
+      "lessonId": "lesson-4",
+      "title": "Creating and Formatting Charts",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "A student wants to compare the number of students who selected different favorite colors. Which chart is the most suitable?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Bar chart"
+            },
+            {
+              "id": "b",
+              "text": "Line chart"
+            },
+            {
+              "id": "c",
+              "text": "Pie chart showing a timeline"
+            },
+            {
+              "id": "d",
+              "text": "Flowchart"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q02",
+          "question": "Why is it important to add headings to charts and graphs?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To make the chart harder to read"
+            },
+            {
+              "id": "b",
+              "text": "To use more space"
+            },
+            {
+              "id": "c",
+              "text": "To explain what the chart shows and help readers understand the data"
+            },
+            {
+              "id": "d",
+              "text": "To hide the data values"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q03",
+          "question": "After creating three different charts, your teacher asks you to choose the best one. What is the best way to decide?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Choose the chart with the most colours"
+            },
+            {
+              "id": "b",
+              "text": "Choose the first chart you created"
+            },
+            {
+              "id": "c",
+              "text": "Choose the chart with the largest title"
+            },
+            {
+              "id": "d",
+              "text": "Choose the chart that communicates the data most clearly for your purpose"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q04",
+          "question": "Why should similar data be presented using consistent formatting?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "It makes every chart look different"
+            },
+            {
+              "id": "b",
+              "text": "It helps readers compare information and understand it more easily"
+            },
+            {
+              "id": "c",
+              "text": "It removes the need for labels"
+            },
+            {
+              "id": "d",
+              "text": "It changes the values in the data"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q05",
+          "question": "Ben notices that some labels on his chart are cut off and cannot be read clearly. What should he do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Adjust the chart size or label settings so the labels are visible"
+            },
+            {
+              "id": "b",
+              "text": "Delete the labels"
+            },
+            {
+              "id": "c",
+              "text": "Make the labels smaller until they disappear"
+            },
+            {
+              "id": "d",
+              "text": "Remove the chart title and all values"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q06",
+          "question": "You notice that your spreadsheet uses different fonts and colors for similar headings. What would you most likely do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Add even more fonts and colours"
+            },
+            {
+              "id": "b",
+              "text": "Remove all headings"
+            },
+            {
+              "id": "c",
+              "text": "Apply consistent formatting to similar headings"
+            },
+            {
+              "id": "d",
+              "text": "Change the data values"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q07",
+          "question": "Before submitting your spreadsheet, you remember to save your work. What does this show?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "You are changing the original data"
+            },
+            {
+              "id": "b",
+              "text": "You are making the spreadsheet public"
+            },
+            {
+              "id": "c",
+              "text": "You are deleting earlier work"
+            },
+            {
+              "id": "d",
+              "text": "You are taking steps to keep your work and avoid losing changes"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q08",
+          "question": "When making a chart from a table, what data must you select?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Only the spreadsheet title"
+            },
+            {
+              "id": "b",
+              "text": "The relevant data values and their category or time labels, including headings where appropriate"
+            },
+            {
+              "id": "c",
+              "text": "Every empty cell in the worksheet"
+            },
+            {
+              "id": "d",
+              "text": "Only the cells containing formulas unrelated to the chart"
+            }
+          ],
+          "correctAnswer": "b"
+        }
+      ]
+    },
+    {
+      "lessonId": "lesson-5",
+      "title": "Reflecting on Digital Work",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "Which of the following is a reason for reflecting on digital work?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To avoid learning anything new"
+            },
+            {
+              "id": "b",
+              "text": "To identify what went well and what could be improved"
+            },
+            {
+              "id": "c",
+              "text": "To delete the finished project"
+            },
+            {
+              "id": "d",
+              "text": "To make the task take longer"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q02",
+          "question": "Reflecting on a completed activity allows a person to:",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Forget every step they completed"
+            },
+            {
+              "id": "b",
+              "text": "Avoid listening to others"
+            },
+            {
+              "id": "c",
+              "text": "Identify strengths, difficulties, and lessons learned"
+            },
+            {
+              "id": "d",
+              "text": "Change the past results"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q03",
+          "question": "What should conclude the reflection process?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Set useful targets or actions for future improvement"
+            },
+            {
+              "id": "b",
+              "text": "Ignore the problems that were found"
+            },
+            {
+              "id": "c",
+              "text": "Delete the project"
+            },
+            {
+              "id": "d",
+              "text": "Repeat the same mistakes"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q04",
+          "question": "Which is a true benefit of reflecting on one's own work?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "It guarantees that no mistakes will ever happen"
+            },
+            {
+              "id": "b",
+              "text": "It removes the need to practise"
+            },
+            {
+              "id": "c",
+              "text": "It makes feedback unnecessary"
+            },
+            {
+              "id": "d",
+              "text": "It helps a person improve future work by learning from experience"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q05",
+          "question": "Evaluating the process and outcome of an activity is best defined as:",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Copying someone else's work"
+            },
+            {
+              "id": "b",
+              "text": "Reflection"
+            },
+            {
+              "id": "c",
+              "text": "Data entry"
+            },
+            {
+              "id": "d",
+              "text": "Formatting"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q06",
+          "question": "A student regrets choosing “Colours” over “Foods,” citing less varied responses. What are they evaluating?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The computer's storage space"
+            },
+            {
+              "id": "b",
+              "text": "The presentation font"
+            },
+            {
+              "id": "c",
+              "text": "The choice of investigation topic and its suitability"
+            },
+            {
+              "id": "d",
+              "text": "The classroom seating plan"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q07",
+          "question": "A student notes neither they nor their partner mastered certain formulas, despite finishing successfully. This reflects:",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "An area of weakness or a skill they need to develop"
+            },
+            {
+              "id": "b",
+              "text": "A reason to stop using spreadsheets"
+            },
+            {
+              "id": "c",
+              "text": "Proof that the project was unsuccessful"
+            },
+            {
+              "id": "d",
+              "text": "A need to delete their work"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q08",
+          "question": "Students share reflections and targets aloud, with some noted on the board. This mainly supports:",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Keeping all learning private"
+            },
+            {
+              "id": "b",
+              "text": "Avoiding future targets"
+            },
+            {
+              "id": "c",
+              "text": "Making the project more complicated"
+            },
+            {
+              "id": "d",
+              "text": "Sharing ideas and learning from one another"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q09",
+          "question": "A student notices their partner excelled at slides while they focused on data. This awareness should shape:",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "A decision to avoid teamwork"
+            },
+            {
+              "id": "b",
+              "text": "How they divide roles and use each other's strengths in future projects"
+            },
+            {
+              "id": "c",
+              "text": "A decision to remove the slides"
+            },
+            {
+              "id": "d",
+              "text": "The deletion of the data"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q10",
+          "question": "Reflection shows both teammates lacked a needed skill. The most productive response is to:",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Blame one another"
+            },
+            {
+              "id": "b",
+              "text": "Ignore the skill gap"
+            },
+            {
+              "id": "c",
+              "text": "Plan to practise or learn that skill before the next project"
+            },
+            {
+              "id": "d",
+              "text": "Avoid similar projects forever"
+            }
+          ],
+          "correctAnswer": "c"
+        }
+      ]
+    },
+    {
+      "lessonId": "lesson-6",
+      "title": "Presenting and Giving Feedback",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "What is the first step in presenting properly?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Start speaking without preparation"
+            },
+            {
+              "id": "b",
+              "text": "Prepare and organize what you want to say"
+            },
+            {
+              "id": "c",
+              "text": "Read every word as quickly as possible"
+            },
+            {
+              "id": "d",
+              "text": "Choose decorations before understanding the topic"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q02",
+          "question": "What should a presenter do regarding timing and feedback?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Ignore the time limit and all comments"
+            },
+            {
+              "id": "b",
+              "text": "Finish as quickly as possible without explanation"
+            },
+            {
+              "id": "c",
+              "text": "Speak for as long as they want"
+            },
+            {
+              "id": "d",
+              "text": "Practise to keep within the time limit and listen respectfully to feedback"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q03",
+          "question": "Besides presenting well, what else matters equally?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Preparing the work and contributing to the team"
+            },
+            {
+              "id": "b",
+              "text": "Using the most expensive computer"
+            },
+            {
+              "id": "c",
+              "text": "Making the presentation as long as possible"
+            },
+            {
+              "id": "d",
+              "text": "Avoiding all questions"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q04",
+          "question": "While presenting, what should a speaker remember to do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Face the screen the entire time and speak quietly"
+            },
+            {
+              "id": "b",
+              "text": "Read too quickly to finish early"
+            },
+            {
+              "id": "c",
+              "text": "Speak clearly, face the audience, and explain the main points"
+            },
+            {
+              "id": "d",
+              "text": "Avoid looking at the audience"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q05",
+          "question": "After each team presents, what should classmates give?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Unrelated stories"
+            },
+            {
+              "id": "b",
+              "text": "Helpful and respectful feedback"
+            },
+            {
+              "id": "c",
+              "text": "Only marks without comments"
+            },
+            {
+              "id": "d",
+              "text": "Personal criticism"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q06",
+          "question": "Which best supports an engaging presentation?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Reading every slide word for word"
+            },
+            {
+              "id": "b",
+              "text": "Using tiny text and crowded slides"
+            },
+            {
+              "id": "c",
+              "text": "Speaking with your back to the audience"
+            },
+            {
+              "id": "d",
+              "text": "Using clear visuals, simple points, and an understandable speaking style"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q07",
+          "question": "Feedback includes criticism. What is the best response?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Listen calmly, consider the suggestion, and use helpful advice to improve"
+            },
+            {
+              "id": "b",
+              "text": "Argue with everyone who gives feedback"
+            },
+            {
+              "id": "c",
+              "text": "Ignore all comments immediately"
+            },
+            {
+              "id": "d",
+              "text": "Stop presenting"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q08",
+          "question": "A student values only presenting but not preparation tasks. What mindset shift helps?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Believe that only the speaker contributes"
+            },
+            {
+              "id": "b",
+              "text": "Avoid sharing responsibilities"
+            },
+            {
+              "id": "c",
+              "text": "Recognize that planning, research, teamwork, and preparation are also important"
+            },
+            {
+              "id": "d",
+              "text": "Let one person do all the work"
+            }
+          ],
+          "correctAnswer": "c"
+        }
+      ]
+    }
+  ]
+}

@@ -12,6 +12,7 @@ import {
 import { gradeAttempts, needsGrading, clearKeyCache } from "./grading.js";
 import { buildBackup, summaryCsv, detailedCsv } from "./backup.js";
 import { buildReport, printHtml } from "./print.js";
+import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import { teacher, sortedQuizzes, quizTitle, appNotice, onTeacherChange } from "./teacherState.js";
 import { overview } from "./analytics.js";
 import {
@@ -305,18 +306,7 @@ export class RecordsView {
   }
 
   sortedRows(rows) {
-    const { key, dir } = this.sort;
-    const d = dir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const x = a[key], y = b[key];
-      const xn = x === null || x === undefined || Number.isNaN(x);
-      const yn = y === null || y === undefined || Number.isNaN(y);
-      if (xn && yn) return 0;
-      if (xn) return 1;
-      if (yn) return -1;
-      if (typeof x === "number" && typeof y === "number") return (x - y) * d;
-      return String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: "base" }) * d;
-    });
+    return sortRows(rows, this.sort);
   }
 
   // -------------------------------------------------------------- rendering
@@ -385,12 +375,7 @@ export class RecordsView {
 
     if (!this.isArchive) this.renderSummary(all);
 
-    this.el.querySelectorAll("th[data-sort]").forEach((th) => {
-      const on = th.dataset.sort === this.sort.key;
-      th.classList.toggle("sorted", on);
-      th.dataset.dir = on ? this.sort.dir : "";
-      th.setAttribute("aria-sort", on ? (this.sort.dir === "asc" ? "ascending" : "descending") : "none");
-    });
+    paintSortHeaders(this.el, this.sort);
 
     this.$("[data-body]").innerHTML = shown.map((r) => `
       <tr data-id="${escapeHtml(r.id)}" class="${this.selected.has(r.id) ? "selected" : ""}">
@@ -496,9 +481,7 @@ export class RecordsView {
     }
     const th = e.target.closest("th[data-sort]");
     if (th) {
-      const key = th.dataset.sort;
-      if (this.sort.key === key) this.sort.dir = this.sort.dir === "asc" ? "desc" : "asc";
-      else this.sort = { key, dir: ["obtained", "percentage", "submittedMs", "focusLossCount"].includes(key) ? "desc" : "asc" };
+      this.sort = nextSort(this.sort, th.dataset.sort, ["obtained", "percentage", "submittedMs", "focusLossCount"]);
       this.render();
       return;
     }

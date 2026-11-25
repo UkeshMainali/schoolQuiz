@@ -367,11 +367,15 @@ if (typeof document !== "undefined") {
     input.files = dt.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
   }));
+  // When the page scrolls (or its content changes height), keep the popup
+  // next to its button; close it only once the button has left the screen.
   document.addEventListener("scroll", (e) => {
     if (!openControl) return;
     const pop = openControl.list || openControl.pop;
     if (pop.contains(e.target)) return;
-    closeOpen();
+    const r = openControl.button.getBoundingClientRect();
+    if (r.bottom < 0 || r.top > window.innerHeight || !r.width) { closeOpen(); return; }
+    place(pop, openControl.button);
   }, true);
 }
 

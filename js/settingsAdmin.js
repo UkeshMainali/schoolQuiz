@@ -1,4 +1,5 @@
-// School settings tab: grades, the sections of each grade, class sizes and
+// School settings tab: grades, the sections of each grade, the number of
+// students per section (the highest roll number allowed) and
 // the default pass mark (settings/school).
 //
 // Student records store the grade and section names as text, so renaming
@@ -45,6 +46,7 @@ export class SettingsAdmin {
         <div class="settings-layout">
           <div class="settings-main">
             <div class="section-title"><h2>Grades and sections</h2><span>Renaming or removing a section never changes existing results.</span></div>
+            <p class="small muted settings-note">Students: the highest roll number allowed in the section (e.g. 40 allows 1 to 40). Leave it empty for no limit. Lowering it never changes existing records; a student above the new limit cannot start or submit a quiz until it is corrected.</p>
             <div class="grade-editors">
               ${this.grades.map((g) => this.gradeCard(g)).join("")}
             </div>
@@ -85,13 +87,13 @@ export class SettingsAdmin {
           <button type="button" class="btn btn-small btn-danger" data-act="remove-grade" data-g="${g.key}">Remove grade</button>
         </div>
         <table class="data-table compact section-table">
-          <thead><tr><th>Section name</th><th class="num" title="Optional: used to show how many students have not submitted">Class size</th><th></th></tr></thead>
+          <thead><tr><th>Section name</th><th class="num" title="Highest roll number students of this section may enter. Leave empty for no limit.">Students (max roll no.)</th><th></th></tr></thead>
           <tbody>
             ${g.sections.map((s) => `
               <tr data-s="${s.key}">
                 <td><input type="text" maxlength="30" value="${escapeHtml(s.name)}" data-field="name" data-g="${g.key}" data-s="${s.key}" aria-label="Section name">
                   ${s.original && s.original !== s.name ? `<div class="small muted">Renamed from "${escapeHtml(s.original)}". Old results keep "${escapeHtml(s.original)}".</div>` : ""}</td>
-                <td class="num"><input type="number" min="0" max="500" value="${escapeHtml(s.size)}" data-field="size" data-g="${g.key}" data-s="${s.key}" aria-label="Students in section" class="num-input"></td>
+                <td class="num"><input type="text" maxlength="6" inputmode="numeric" placeholder="No limit" value="${escapeHtml(s.size)}" data-field="size" data-g="${g.key}" data-s="${s.key}" aria-label="Students in section (highest roll number)" class="num-input"></td>
                 <td><button type="button" class="btn btn-small" data-act="remove-section" data-g="${g.key}" data-s="${s.key}" aria-label="Remove section">Remove</button></td>
               </tr>`).join("")}
             ${g.sections.length ? "" : '<tr><td colspan="3" class="empty">No sections yet.</td></tr>'}
@@ -194,8 +196,13 @@ export class SettingsAdmin {
       if (new Set(lower).size !== lower.length) problems.push(`Grade ${g.grade} has the same section name twice.`);
       sectionsByGrade[g.grade] = names;
       g.sections.forEach((s) => {
-        const n = parseInt(s.size, 10);
-        if (n > 0) classSizes[`${g.grade}-${s.name.trim()}`] = n;
+        const raw = String(s.size ?? "").trim();
+        if (!raw) return; // no limit
+        if (!/^\d{1,6}$/.test(raw) || Number(raw) < 1) {
+          problems.push(`Grade ${g.grade}, Section ${s.name.trim() || "(no name)"}: the number of students must be a whole number from 1, or empty for no limit.`);
+          return;
+        }
+        classSizes[`${g.grade}-${s.name.trim()}`] = Number(raw);
       });
     });
     if (problems.length) { err.innerHTML = problems.map(escapeHtml).join("<br>"); return; }
@@ -210,7 +217,7 @@ export class SettingsAdmin {
       setSettings(data);
       this.load();
       this.render();
-      appNotice("Settings saved. Students see the new grades and sections the next time they open the site.", "success");
+      appNotice("Settings saved. Students get the new grades, sections and roll number limits the next time they save their details or start a quiz.", "success");
     } catch (e) {
       appNotice(`Could not save settings. ${friendlyError(e)}`, "error");
       btn.disabled = false;

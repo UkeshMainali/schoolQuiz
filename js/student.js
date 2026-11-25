@@ -4,7 +4,7 @@
 import { ensureStudentAuth } from "./auth.js";
 import { loadActiveQuizzes, checkAttempt } from "./submission.js";
 import {
-  loadSettings, sectionsFor, normalizeRoll, normalizeName, makeAttemptId, escapeHtml,
+  loadSettings, sectionsFor, validateRoll, rollLimit, normalizeName, makeAttemptId, escapeHtml,
   friendlyError, showNotice, hideNotice, storage, formatDateTime, pluralize,
   ACTIVE_KEY, PENDING_KEY, PROFILE_KEY
 } from "./utilities.js";
@@ -33,6 +33,17 @@ function updateSectionOptions(selected = "") {
   $("section").disabled = !grade;
   if (list.includes(selected)) $("section").value = selected;
   else if (list.length === 1) $("section").value = list[0];
+  checkRollLive();
+}
+
+/** Shows the allowed range for the chosen section and checks the typed roll number as it changes. */
+function checkRollLive() {
+  const grade = $("grade").value, section = $("section").value;
+  const max = grade && section ? rollLimit(settings, grade, section) : null;
+  $("rollHint").textContent = max ? `Grade ${grade}, Section ${section}: roll numbers 1 to ${max}.` : "";
+  $("rollHint").hidden = !max;
+  const typed = $("rollNo").value.trim();
+  setFieldError("rollNo", typed ? validateRoll(typed, settings, grade, section).error : "");
 }
 
 function setFieldError(id, message) {
@@ -61,10 +72,10 @@ function showProfileForm(editing) {
 
 function readProfileForm() {
   const name = normalizeName($("fullName").value);
-  const roll = normalizeRoll($("rollNo").value);
+  const { roll, error: rollError } = validateRoll($("rollNo").value, settings, $("grade").value, $("section").value);
   const errors = {
     fullName: !name ? "Please enter your full name." : name.length < 2 ? "Name is too short." : "",
-    rollNo: !$("rollNo").value.trim() ? "Please enter your roll number." : roll === null ? "Roll number must be digits only, for example 12." : "",
+    rollNo: rollError,
     grade: !$("grade").value ? "Please choose your grade." : "",
     section: !$("section").value ? "Please choose your section." : ""
   };
@@ -76,6 +87,8 @@ function readProfileForm() {
 
 async function onSaveProfile(e) {
   e.preventDefault();
+  // Use the latest limits: the teacher may have changed them since the page opened.
+  settings = await loadSettings();
   const p = readProfileForm();
   if (!p) return;
   profile = p;
@@ -83,9 +96,10 @@ async function onSaveProfile(e) {
   await showHome();
 }
 
-/** A saved profile is only valid if its grade and section still exist. */
+/** A saved profile is only valid if its grade and section still exist and its roll number is allowed. */
 function profileIsValid(p) {
-  return p && p.name && p.roll && settings.grades.includes(p.grade) && sectionsFor(settings, p.grade).includes(p.section);
+  return p && p.name && p.roll && settings.grades.includes(p.grade) && sectionsFor(settings, p.grade).includes(p.section)
+    && !validateRoll(p.roll, settings, p.grade, p.section).error;
 }
 
 // --------------------------------------------------------------- quiz list
@@ -176,8 +190,21 @@ function onQuizListClick(e) {
   $("confirmStart").focus();
 }
 
-function confirmStart() {
+async function confirmStart() {
   if (!pendingStart) return;
+  // Check the roll number again with fresh settings before starting.
+  $("confirmStart").disabled = true;
+  settings = await loadSettings();
+  $("confirmStart").disabled = false;
+  if (!profileIsValid(profile)) {
+    $("confirmModal").hidden = true;
+    pendingStart = null;
+    showProfileForm(true);
+    $("cancelProfileBtn").hidden = true;
+    checkRollLive();
+    showNotice($("notice"), "Your details no longer match the school settings. Please check them before starting.", "warning");
+    return;
+  }
   storage.set(PENDING_KEY, {
     quizId: pendingStart.id,
     student: { name: profile.name, roll: profile.roll, grade: profile.grade, section: profile.section }
@@ -195,11 +222,17 @@ async function init() {
     $("loading").hidden = true;
     if (profileIsValid(profile)) await showHome();
     else {
-      if (profile) showNotice($("notice"), "Your grade or section has changed in the school settings. Please check your details.", "warning");
       const keep = profile;
       profile = keep && keep.name ? keep : null;
       showProfileForm(!!profile);
-      if (profile) $("cancelProfileBtn").hidden = true;
+      if (profile) {
+        $("cancelProfileBtn").hidden = true;
+        checkRollLive();
+        const gradeOk = settings.grades.includes(profile.grade) && sectionsFor(settings, profile.grade).includes(profile.section);
+        showNotice($("notice"), gradeOk
+          ? "Your roll number is not allowed for your section in the school settings. Please check it, or ask your teacher."
+          : "Your grade or section has changed in the school settings. Please check your details.", "warning");
+      }
     }
   } catch (err) {
     $("loading").hidden = true;
@@ -210,6 +243,8 @@ async function init() {
 
 $("profileForm").addEventListener("submit", onSaveProfile);
 $("grade").addEventListener("change", () => updateSectionOptions());
+$("section").addEventListener("change", () => checkRollLive());
+$("rollNo").addEventListener("input", () => checkRollLive());
 $("cancelProfileBtn").addEventListener("click", () => showHome());
 $("editProfileBtn").addEventListener("click", () => showProfileForm(true));
 $("switchStudentBtn").addEventListener("click", () => {
@@ -222,6 +257,6 @@ $("switchStudentBtn").addEventListener("click", () => {
 $("quizList").addEventListener("click", onQuizListClick);
 $("confirmBack").addEventListener("click", () => { $("confirmModal").hidden = true; pendingStart = null; });
 $("confirmStart").addEventListener("click", confirmStart);
-FIELDS.forEach((id) => $(id).addEventListener("input", () => setFieldError(id, "")));
+FIELDS.filter((id) => id !== "rollNo").forEach((id) => $(id).addEventListener("input", () => setFieldError(id, "")));
 
 init();

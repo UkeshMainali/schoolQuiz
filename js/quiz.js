@@ -6,7 +6,7 @@ import { loadQuiz, checkAttempt, createAttempt, saveProgress, submitAttempt } fr
 import { buildRandomOrder } from "./randomizer.js";
 import { startAntiCheat, requestFullscreen, isFullscreen, fullscreenSupported } from "./antiCheat.js";
 import {
-  makeAttemptId, escapeHtml, friendlyError, showNotice, hideNotice, storage, formatDateTime,
+  makeAttemptId, escapeHtml, friendlyError, loadSettings, validateRoll, showNotice, hideNotice, storage, formatDateTime,
   ACTIVE_KEY, PENDING_KEY, progressKey, toDate
 } from "./utilities.js";
 import { SHORT_ANSWER_MAX_LENGTH } from "./questionBank.js";
@@ -276,6 +276,13 @@ async function startNewAttempt(pending) {
     showError(`This quiz is for Grade ${quiz.grade} students only.`, false);
     return;
   }
+  // Roll number limit for the section, read fresh (the security rules check it too).
+  const rollCheck = validateRoll(student.roll, await loadSettings(), student.grade, student.section);
+  if (rollCheck.error) {
+    storage.remove(PENDING_KEY);
+    showError(`${rollCheck.error} Go back to the start page and correct your details, or ask your teacher.`, false);
+    return;
+  }
   const attemptId = makeAttemptId(quizId, student.grade, student.section, student.roll);
   const existing = await checkAttempt(attemptId);
   if (existing.state === "taken") {
@@ -511,6 +518,18 @@ async function doSubmit() {
     openReview();
     showNotice(els.notice, remainingMessage(missing.length), "error");
     return;
+  }
+  // Check the roll number against the section's current limit before sending.
+  // If the teacher lowered the limit after the quiz started, nothing is
+  // changed or lost: the answers stay saved until the teacher fixes it.
+  if (navigator.onLine !== false && state.student) {
+    state.submitting = true; // blocks double clicks while the settings load
+    const rollCheck = validateRoll(state.student.roll, await loadSettings(), state.student.grade, state.student.section);
+    state.submitting = false;
+    if (rollCheck.error) {
+      showNotice(els.submitError, `${rollCheck.error} Your quiz cannot be submitted with roll number ${state.student.roll}. Your answers are saved. Please tell your teacher.`, "error");
+      return;
+    }
   }
   state.submitting = true;
   persistLocal();

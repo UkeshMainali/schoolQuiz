@@ -4,16 +4,33 @@
 
 import { db, collection, getDocs } from "./firebase.js";
 import { loadSettings, showNotice, hideNotice } from "./utilities.js";
+import { loadCategories } from "./quizCategories.js";
 
 export const teacher = {
   settings: null,
   quizzes: new Map(), // quizId -> quiz list document (no questions for new quizzes)
+  categories: [], // quiz tabs: [{ id, name }] from settings/quizCategories
   listeners: new Set()
 };
 
 export async function loadTeacherData() {
-  const [settings] = await Promise.all([loadSettings(), reloadQuizzes()]);
+  const [settings] = await Promise.all([loadSettings(), reloadQuizzes(), reloadCategories()]);
   teacher.settings = settings;
+}
+
+/** Reads the quiz tabs. A failure leaves the previous list (quizzes still show under Uncategorized). */
+export async function reloadCategories() {
+  try {
+    teacher.categories = await loadCategories();
+  } catch (err) {
+    console.warn("Could not load quiz tabs", err);
+  }
+  notify("categories");
+}
+
+export function setCategories(list) {
+  teacher.categories = list;
+  notify("categories");
 }
 
 /** Reads the quiz list documents (small: questions live in quizContent). */

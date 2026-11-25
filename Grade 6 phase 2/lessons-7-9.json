@@ -1,0 +1,426 @@
+{
+  "schemaVersion": "1.0",
+  "title": "Lessons 7 9",
+  "description": "Multiple-choice question bank. Each question has four options and one correct answer.",
+  "totalQuestions": 16,
+  "lessons": [
+    {
+      "lessonId": "lesson-7",
+      "title": "Reviewing and Improving an Investigation",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "What does reflecting on your work mean?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Copying another person's work"
+            },
+            {
+              "id": "b",
+              "text": "Thinking about what you did, what you learned, and what could be improved"
+            },
+            {
+              "id": "c",
+              "text": "Deleting your completed work"
+            },
+            {
+              "id": "d",
+              "text": "Changing results to look better"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q02",
+          "question": "Why should you check your work before submitting it?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To make the file longer"
+            },
+            {
+              "id": "b",
+              "text": "To remove all headings"
+            },
+            {
+              "id": "c",
+              "text": "To find mistakes and make sure it meets the requirements"
+            },
+            {
+              "id": "d",
+              "text": "To avoid completing the task"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q03",
+          "question": "What is feedback?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Information or advice about what was done well and what could be improved"
+            },
+            {
+              "id": "b",
+              "text": "A type of computer virus"
+            },
+            {
+              "id": "c",
+              "text": "A method of deleting files"
+            },
+            {
+              "id": "d",
+              "text": "A spreadsheet chart"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q04",
+          "question": "What are criteria used for?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Making a project more colourful"
+            },
+            {
+              "id": "b",
+              "text": "Replacing the investigation question"
+            },
+            {
+              "id": "c",
+              "text": "Hiding mistakes"
+            },
+            {
+              "id": "d",
+              "text": "Providing standards or points to check when judging the quality of work"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q05",
+          "question": "What is the final stage to finish an investigation project?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Collecting the first response"
+            },
+            {
+              "id": "b",
+              "text": "Reviewing the work, reflecting on the outcome, and identifying improvements"
+            },
+            {
+              "id": "c",
+              "text": "Choosing a topic before planning"
+            },
+            {
+              "id": "d",
+              "text": "Creating a blank spreadsheet"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q06",
+          "question": "Why is it good to save earlier versions of your work?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "They make the computer slower on purpose"
+            },
+            {
+              "id": "b",
+              "text": "They prevent all future changes"
+            },
+            {
+              "id": "c",
+              "text": "They let you return to an earlier version if something goes wrong or you need to compare changes"
+            },
+            {
+              "id": "d",
+              "text": "They automatically improve your marks"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q07",
+          "question": "Why is feedback from someone else useful?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "They may notice problems or suggest improvements that you did not notice"
+            },
+            {
+              "id": "b",
+              "text": "It always means your work is incorrect"
+            },
+            {
+              "id": "c",
+              "text": "It removes the need to check your work"
+            },
+            {
+              "id": "d",
+              "text": "It guarantees a perfect result"
+            }
+          ],
+          "correctAnswer": "a"
+        }
+      ]
+    },
+    {
+      "lessonId": "lesson-8",
+      "title": "Simulating Real-World Environments",
+      "questions": [
+        {
+          "id": "q01",
+          "question": "What does it mean to simulate a real place?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "To visit the place in person"
+            },
+            {
+              "id": "b",
+              "text": "To make a photograph of the place"
+            },
+            {
+              "id": "c",
+              "text": "To build an exact copy using real materials"
+            },
+            {
+              "id": "d",
+              "text": "To create a model or virtual version that behaves in a similar way to the real place"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q02",
+          "question": "Which of these is an example of a simulated environment?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "A printed list of names"
+            },
+            {
+              "id": "b",
+              "text": "A flight simulator used to practise flying"
+            },
+            {
+              "id": "c",
+              "text": "A normal classroom desk"
+            },
+            {
+              "id": "d",
+              "text": "A handwritten shopping list"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q03",
+          "question": "A city planner uses a simulation to study traffic during rush hour. Which variable would be most useful to change?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The colour of the computer keyboard"
+            },
+            {
+              "id": "b",
+              "text": "The planner's favourite food"
+            },
+            {
+              "id": "c",
+              "text": "The number of vehicles or timing of traffic lights"
+            },
+            {
+              "id": "d",
+              "text": "The size of the computer monitor"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q04",
+          "question": "Why might a simulation produce results that differ from real-world events?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "It uses assumptions and simplified models that may not include every real-world factor"
+            },
+            {
+              "id": "b",
+              "text": "It always knows exactly what will happen"
+            },
+            {
+              "id": "c",
+              "text": "It contains every possible detail of reality"
+            },
+            {
+              "id": "d",
+              "text": "It never uses data"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q05",
+          "question": "A farmer uses a simulation to predict crop growth. Which set of variables would provide the most useful information?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "The farmer's clothing and the computer's colour"
+            },
+            {
+              "id": "b",
+              "text": "The number of classroom chairs and desks"
+            },
+            {
+              "id": "c",
+              "text": "The brand of the farmer's phone"
+            },
+            {
+              "id": "d",
+              "text": "Rainfall, temperature, sunlight, soil conditions, and water supply"
+            }
+          ],
+          "correctAnswer": "d"
+        },
+        {
+          "id": "q06",
+          "question": "A flood simulation predicts that a town may flood when rainfall exceeds a certain level. What should officials do before using this prediction to make decisions?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Assume the prediction is always correct"
+            },
+            {
+              "id": "b",
+              "text": "Check the model using reliable data and compare it with real conditions"
+            },
+            {
+              "id": "c",
+              "text": "Ignore the rainfall information"
+            },
+            {
+              "id": "d",
+              "text": "Remove all warning systems"
+            }
+          ],
+          "correctAnswer": "b"
+        },
+        {
+          "id": "q07",
+          "question": "A city wants to test new traffic lights before installing them. What should they do?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "Install them everywhere without testing"
+            },
+            {
+              "id": "b",
+              "text": "Ask people to guess the results"
+            },
+            {
+              "id": "c",
+              "text": "Use a traffic simulation to test different timings and traffic conditions"
+            },
+            {
+              "id": "d",
+              "text": "Stop collecting traffic information"
+            }
+          ],
+          "correctAnswer": "c"
+        },
+        {
+          "id": "q08",
+          "question": "An architect wants clients to see a building that is not yet built. What is most suitable?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "A 3D computer model or virtual walkthrough of the building"
+            },
+            {
+              "id": "b",
+              "text": "A list of building materials only"
+            },
+            {
+              "id": "c",
+              "text": "A spreadsheet of staff names"
+            },
+            {
+              "id": "d",
+              "text": "A weather report"
+            }
+          ],
+          "correctAnswer": "a"
+        },
+        {
+          "id": "q09",
+          "question": "Why are simulations useful for practising rare events?",
+          "type": "multiple_choice",
+          "marks": 1,
+          "options": [
+            {
+              "id": "a",
+              "text": "They make rare events happen more often in real life"
+            },
+            {
+              "id": "b",
+              "text": "They remove all possible risks permanently"
+            },
+            {
+              "id": "c",
+              "text": "They guarantee that an event will never occur"
+            },
+            {
+              "id": "d",
+              "text": "They allow people to practise safely without waiting for the real event to happen"
+            }
+          ],
+          "correctAnswer": "d"
+        }
+      ]
+    },
+    {
+      "lessonId": "lesson-9",
+      "title": "Lesson 9 (Questions Not Provided)",
+      "questions": [],
+      "note": "No Lesson 9 questions were included in the supplied material. Add questions when they are available."
+    }
+  ]
+}

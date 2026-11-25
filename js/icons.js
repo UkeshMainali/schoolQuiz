@@ -16,7 +16,10 @@ const BY_LABEL = [
   [/^show$/, "eye"],
   [/^hide$/, "eye-slash"],
   [/refresh|reload/, "rotate"],
-  [/load more/, "angles-down"],
+  [/load more|show more/, "angles-down"],
+  [/^rename/, "pen"],
+  [/^create/, "plus"],
+  [/^move/, "folder-open"],
   [/clear selection/, "xmark"],
   [/^clear( filters)?$/, "filter-circle-xmark"],
   [/answer sheets|with answers/, "file-lines"],
@@ -69,7 +72,7 @@ const BY_ACTION = {
   open: () => "chevron-right"
 };
 const AFTER_TEXT = new Set(["arrow-right", "chevron-right", "angles-down"]);
-const SKIP = ".cselect-button, .cdate-button, .cdate-day, .cdate-nav, .cdate-link, .chip, .tab, .nav-num, .option, .link-btn, .affix-btn, [data-icon='none']";
+const SKIP = ".qtab, .cselect-button, .cdate-button, .cdate-day, .cdate-nav, .cdate-link, .chip, .tab, .nav-num, .option, .link-btn, .affix-btn, [data-icon='none']";
 const TARGETS = "button, a.btn, summary.btn, .menu-list > a";
 
 function iconFor(el) {
@@ -89,6 +92,8 @@ function decorate(el) {
   const current = el.querySelector(":scope > i.fa-solid[data-auto]");
   const has = el.querySelector(":scope > i[class*='fa-']:not([data-auto])");
   if (has) return;
+  // Icon-only "⋯" buttons have no text left to match, so keep their icon.
+  if (current && el.classList.contains("is-icon-only")) return;
   const icon = iconFor(el);
   if (current && current.dataset.auto === icon) return;
   if (current) current.remove();

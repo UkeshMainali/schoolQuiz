@@ -4,7 +4,8 @@ rules_version = '2';
 //
 // Collections
 //   teachers/{uid}        authorised teacher accounts (created by hand in the console)
-//   settings/school       grades, sections, pass mark, class sizes
+//   settings/school       grades, sections, pass mark, students per section (= highest roll number)
+//   settings/quizCategories  the teacher's quiz tabs (names only)
 //   quizzes/{quizId}      quiz list document (title, grade, counts, open/closed), NO answers.
 //                         Quizzes created before v2 also hold their questions here.
 //   quizContent/{quizId}  questions + options of a quiz, NO correct answers
@@ -110,6 +111,15 @@ service cloud.firestore {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    // settings/school.classSizes["6-A"] = 40 means Grade 6, Section A allows
+    // roll numbers 1 to 40. No number (or 0) means no limit.
+    function rollAllowed(grade, section, roll) {
+      let path = /databases/$(database)/documents/settings/school;
+      let sizes = exists(path) ? get(path).data.get('classSizes', {}) : {};
+      let max = sizes.get(grade + '-' + section, 0);
+      return !(max is int) || max <= 0 || int(roll) <= max;
+    }
     function validNewAttempt(attemptId) {
       let d = request.resource.data;
       let quiz = get(/databases/$(database)/documents/quizzes/$(d.quizId)).data;
@@ -125,7 +135,10 @@ service cloud.firestore {
         && d.status == 'in_progress'
         && d.studentName is string && d.studentName.size() >= 2 && d.studentName.size() <= 80
         && d.nameLower == d.studentName.lower()
-        && d.rollNo is string && d.rollNo.matches('^(0|[1-9][0-9]{0,5})$')
+        // Roll numbers start at 1 and may not exceed the section's student
+        // limit from School settings (when one is set).
+        && d.rollNo is string && d.rollNo.matches('^[1-9][0-9]{0,5}$')
+        && rollAllowed(d.grade, d.section, d.rollNo)
         && d.grade is string && d.grade.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$')
         && d.section is string && d.section.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$')
         && attemptId == d.quizId + '_' + d.grade + '_' + d.section + '_' + d.rollNo
@@ -166,7 +179,9 @@ service cloud.firestore {
             // Every question must be answered before submitting.
             || (d.status == 'submitted' && d.submittedAt == request.time
                 && d.answers.size() == old.questionCount
-                && d.answeredCount == old.questionCount));
+                && d.answeredCount == old.questionCount
+                // checked again on submit, against the current limit
+                && rollAllowed(old.grade, old.section, old.rollNo)));
     }
   }
 }
