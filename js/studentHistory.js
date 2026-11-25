@@ -3,7 +3,8 @@
 // optionally, the archive. Used by the dashboard's "Student history" tab
 // (student.html only forwards old links there).
 
-import { queryAttempts, fetchResults } from "./records.js";
+import { queryAllAttempts } from "./records.js";
+import { pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { toRow } from "./recordsView.js";
 import { groupByStudent, performance, studentKey } from "./analytics.js";
 import { teacher, appNotice, onTeacherChange } from "./teacherState.js";
@@ -56,7 +57,7 @@ export class HistoryView {
     this.$("grade").addEventListener("change", () => { this.scope.grade = this.$("grade").value; this.scope.section = ""; this.fillSections(); this.load(); });
     this.$("section").addEventListener("change", () => { this.scope.section = this.$("section").value; this.load(); });
     this.$("archive").addEventListener("change", () => { this.scope.archive = this.$("archive").checked; this.load(); });
-    this.$("search").addEventListener("input", () => this.renderList());
+    this.$("search").addEventListener("input", () => { this.listPage = 0; this.renderList(); });
     this.$("refresh").addEventListener("click", () => { this.cache.clear(); if (this.current) this.openStudent(this.current); else this.load(); });
     this.el.addEventListener("click", (e) => this.onClick(e));
     document.addEventListener("click", (e) => {
@@ -95,16 +96,11 @@ export class HistoryView {
     const sources = archive ? ["active", "archive"] : ["active"];
     let rows = [];
     let capped = false;
-    for (const source of sources) {
-      let cursor = null, more = true, items = [];
-      while (more && items.length < MAX_RECORDS) {
-        const page = await queryAttempts(source, scope, { pageSize: 500, cursor });
-        items = items.concat(page.items);
-        cursor = page.cursor;
-        more = page.hasMore;
-      }
+    // Active and archived records are read at the same time.
+    const loaded = await Promise.all(sources.map((source) => queryAllAttempts(source, scope, { max: MAX_RECORDS })));
+    for (const [i, source] of sources.entries()) {
+      const { items, results, capped: more } = loaded[i];
       capped = capped || more;
-      const results = await fetchResults(source, items.map((a) => a.id));
       rows = rows.concat(items.map((a) => ({ ...toRow(a, results.get(a.id) || null, source === "archive"), archived: source === "archive" })));
     }
     const out = { rows, capped };
@@ -121,6 +117,7 @@ export class HistoryView {
     this.$("list").hidden = false;
     const scope = { grade: this.scope.grade, section: this.scope.section };
     this.loadedKey = JSON.stringify(this.scope);
+    this.listPage = 0;
     this.$("list").innerHTML = skeleton("table", { cols: 8, rows: 8 });
     try {
       const { rows, capped } = await this.fetch(scope, this.scope.archive);
@@ -153,6 +150,8 @@ export class HistoryView {
   renderList() {
     if (this.current) return;
     const list = this.visibleGroups();
+    this.listPage = clampPage(this.listPage || 0, list.length);
+    const pageList = pageSlice(list, this.listPage);
     const box = this.$("list");
     if (!this.groups.length) {
       box.innerHTML = `<div class="card empty">No student records for Grade ${escapeHtml(this.scope.grade)}${this.scope.section ? `, Section ${escapeHtml(this.scope.section)}` : ""}.</div>`;
@@ -175,7 +174,7 @@ export class HistoryView {
         <div class="table-wrap">
           <table class="data-table">
             <thead><tr><th data-sort="name">Student</th><th data-sort="rollNum" class="num">Roll</th><th data-sort="grade">Grade</th><th data-sort="section">Section</th><th data-sort="attempted" class="num" title="Quizzes attempted">Quizzes</th><th data-sort="counted" class="num" title="Graded, not declined, latest attempt per quiz">Counted</th><th data-sort="overall" class="num" title="Total marks ÷ total possible">Overall</th><th data-sort="average" class="num" title="Mean of quiz percentages">Average</th><th data-sort="latestMs">Last submitted</th><th class="actions-col"></th></tr></thead>
-            <tbody>${list.map((g) => `
+            <tbody>${pageList.map((g) => `
               <tr>
                 <td class="name-cell"><button type="button" class="link-btn" data-open="${escapeHtml(g.key)}">${escapeHtml(g.names.join(" / "))}</button></td>
                 <td class="num">${escapeHtml(g.rollNo)}</td>
@@ -190,6 +189,7 @@ export class HistoryView {
               </tr>`).join("") || '<tr><td colspan="10" class="empty">No student matches this search.</td></tr>'}</tbody>
           </table>
         </div>
+        ${pagerHtml({ page: this.listPage, total: list.length, label: "students" })}
       </div>`;
     paintSortHeaders(box.querySelector("table"), this.sort);
   }
@@ -294,8 +294,14 @@ export class HistoryView {
         this.renderDetail(this.detailStudent, this.detailAll);
       } else {
         this.sort = nextSort(this.sort, th.dataset.sort, GROUP_DESC_FIRST);
+        this.listPage = 0;
         this.renderList();
       }
+      return;
+    }
+    const pageBtn = e.target.closest("[data-page]");
+    if (pageBtn && !this.current) {
+      if (!pageBtn.disabled) { this.listPage = Number(pageBtn.dataset.page); this.renderList(); this.$("list").scrollIntoView({ block: "start", behavior: "smooth" }); }
       return;
     }
     const open = e.target.closest("[data-open]");

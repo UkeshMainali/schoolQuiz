@@ -1,7 +1,7 @@
 // Analysis tab: overview, grade / section / quiz / student / question views.
 // Filters: grade, section, quiz (Firestore query) and dates (in the browser).
 
-import { queryAttempts, fetchResults } from "./records.js";
+import { queryAllAttempts } from "./records.js";
 import { toRow } from "./recordsView.js";
 import { teacher, sortedQuizzes, quizTitle, appNotice, onTeacherChange } from "./teacherState.js";
 import { overview, groupBy, scoreBands, studentStats, questionStats, lessonStats, countable } from "./analytics.js";
@@ -84,17 +84,8 @@ export class AnalyticsView {
     if (this.cache.has(key)) { this.rows = this.cache.get(key); this.render(); return; }
     this.$("[data-out]").innerHTML = `${skeleton("cards")}${skeleton("table", { cols: 5, rows: 5 })}`;
     try {
-      let items = [];
-      let cursor = null;
-      let more = true;
-      while (more && items.length < MAX_RECORDS) {
-        const page = await queryAttempts("active", scope, { pageSize: 500, cursor });
-        items = items.concat(page.items);
-        cursor = page.cursor;
-        more = page.hasMore;
-      }
-      this.capped = more;
-      const results = await fetchResults("active", items.map((a) => a.id));
+      const { items, results, capped } = await queryAllAttempts("active", scope, { max: MAX_RECORDS });
+      this.capped = capped;
       this.rows = items.map((a) => toRow(a, results.get(a.id) || null));
       this.cache.set(key, this.rows);
       this.render();

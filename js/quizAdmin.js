@@ -14,6 +14,7 @@ import { db, doc, writeBatch, serverTimestamp, Timestamp } from "./firebase.js";
 import { parseQuestionBank, buildQuiz, toQuizMeta, toQuizContent, toAnswerKey } from "./questionBank.js";
 import { loadAnswerKey, clearKeyCache } from "./grading.js";
 import { teacher, reloadQuizzes, reloadCategories, setCategories, appNotice, onTeacherChange } from "./teacherState.js";
+import { pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage, skeleton } from "./utilities.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import {
@@ -22,7 +23,6 @@ import {
 } from "./quizCategories.js";
 
 const QUIZZES_PER_BATCH = 100; // 3 writes each, below Firestore's 500 limit
-const PAGE = 200; // rows rendered at a time; sorting and filtering always use the whole list
 const TAB_KEY = "cq_quiz_tab";
 
 // Sort values for the quiz table columns.
@@ -49,7 +49,7 @@ export class QuizAdmin {
     this.sort = { key: "grade", dir: "asc" }; // then title
     this.tab = storage.get(TAB_KEY) ?? ALL;
     this.selected = new Set();
-    this.limit = PAGE;
+    this.qpage = 0;
     this.el.innerHTML = `
       <div class="card">
         <div class="card-head"><div><h2>Add quizzes</h2><p class="card-sub">Upload a question bank file.</p></div></div>
@@ -100,7 +100,7 @@ export class QuizAdmin {
             <tbody data-q="list"></tbody>
           </table>
         </div>
-        <div class="center load-more"><button type="button" class="btn btn-small" data-q="more" hidden>Show more</button></div>
+        <div data-q="pager"></div>
       </div>
       <div data-q="key"></div>`;
     this.$ = (s) => this.el.querySelector(`[data-q="${s}"]`);
@@ -116,9 +116,9 @@ export class QuizAdmin {
 
   bind() {
     this.$("file").addEventListener("change", (e) => this.readFiles([...e.target.files]));
-    this.$("search").addEventListener("input", (e) => { this.filters.search = e.target.value; this.limit = PAGE; this.renderList(); });
-    this.$("grade").addEventListener("change", (e) => { this.filters.grade = e.target.value; this.limit = PAGE; this.renderList(); });
-    this.$("status").addEventListener("change", (e) => { this.filters.status = e.target.value; this.limit = PAGE; this.renderList(); });
+    this.$("search").addEventListener("input", (e) => { this.filters.search = e.target.value; this.qpage = 0; this.renderList(); });
+    this.$("grade").addEventListener("change", (e) => { this.filters.grade = e.target.value; this.qpage = 0; this.renderList(); });
+    this.$("status").addEventListener("change", (e) => { this.filters.status = e.target.value; this.qpage = 0; this.renderList(); });
     this.$("refresh").addEventListener("click", async () => {
       try { await Promise.all([reloadQuizzes(), reloadCategories()]); appNotice("Quiz list refreshed.", "success"); } catch (err) { appNotice(friendlyError(err), "error"); }
     });
@@ -136,11 +136,19 @@ export class QuizAdmin {
     });
     this.$("clear-selection").addEventListener("click", () => { this.selected.clear(); this.renderList(); });
     this.$("move-selected").addEventListener("click", () => this.run(() => this.moveDialog([...this.selected])));
-    this.$("more").addEventListener("click", () => { this.limit += PAGE; this.renderList(); });
+    // 50 quizzes per page; sorting and filtering always use the whole list.
+    this.$("pager").addEventListener("click", (e) => {
+      const b = e.target.closest("[data-page]");
+      if (!b || b.disabled) return;
+      this.qpage = Number(b.dataset.page);
+      this.renderList();
+      this.el.querySelector(".quiz-table").scrollIntoView({ block: "start", behavior: "smooth" });
+    });
     this.el.querySelector(".quiz-table thead").addEventListener("click", (e) => {
       const th = e.target.closest("th[data-sort]");
       if (!th) return;
       this.sort = nextSort(this.sort, th.dataset.sort, ["questions", "marks", "created"]);
+      this.qpage = 0;
       this.renderList();
     });
     this.$("tabs").addEventListener("click", (e) => {
@@ -200,7 +208,7 @@ export class QuizAdmin {
   setTab(id) {
     this.tab = this.tabExists(id) ? id : ALL;
     storage.set(TAB_KEY, this.tab);
-    this.limit = PAGE;
+    this.qpage = 0;
     this.renderList();
     if (this.imp) this.renderImport();
   }
@@ -370,7 +378,8 @@ export class QuizAdmin {
     // Forget selections that no longer exist.
     [...this.selected].forEach((id) => { if (!teacher.quizzes.has(id)) this.selected.delete(id); });
     const list = this.visibleQuizzes();
-    const shown = list.slice(0, this.limit);
+    this.qpage = clampPage(this.qpage, list.length);
+    const shown = pageSlice(list, this.qpage);
     const archivedCount = [...teacher.quizzes.values()].filter((q) => q.archived && (this.tab === ALL || categoryOf(q, teacher.categories) === this.tab)).length;
     const hiddenArchived = archivedCount && !["archived", "all"].includes(this.filters.status);
     this.$("count").textContent = `${pluralize(list.length, "quiz", "quizzes")}${hiddenArchived ? ` · ${archivedCount} archived hidden` : ""}`;
@@ -383,9 +392,7 @@ export class QuizAdmin {
           : "No quizzes match these filters.";
     }
     this.$("list").innerHTML = shown.length ? shown.map((q) => this.quizRow(q)).join("") : `<tr><td colspan="9" class="empty">${escapeHtml(empty)}</td></tr>`;
-    const more = this.$("more");
-    more.hidden = list.length <= shown.length;
-    more.textContent = `Show more (${list.length - shown.length} more)`;
+    this.$("pager").innerHTML = pagerHtml({ page: this.qpage, total: list.length, label: "quizzes" });
     const all = this.$("select-all");
     const selShown = list.filter((q) => this.selected.has(q.id)).length;
     all.checked = !!list.length && selShown === list.length;

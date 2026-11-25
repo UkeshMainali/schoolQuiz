@@ -54,15 +54,43 @@ export async function countAttempts(source, scope) {
   return snap.data().count;
 }
 
-/** Loads documents by id from one collection, 30 ids per query. */
+/** Loads documents by id from one collection: 30 ids per query, up to 6 queries at a time. */
 async function getByIds(collectionName, ids) {
   const out = new Map();
-  for (let i = 0; i < ids.length; i += 30) {
-    const chunk = ids.slice(i, i + 30);
-    const snap = await getDocs(query(collection(db, collectionName), where(documentId(), "in", chunk)));
-    snap.docs.forEach((d) => out.set(d.id, { id: d.id, ...d.data() }));
-  }
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length) {
+      const chunk = chunks[next++];
+      const snap = await getDocs(query(collection(db, collectionName), where(documentId(), "in", chunk)));
+      snap.docs.forEach((d) => out.set(d.id, { id: d.id, ...d.data() }));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, chunks.length) }, worker));
   return out;
+}
+
+/**
+ * Every attempt in a scope (up to max) with its result, for sorting, searching,
+ * summaries and bulk actions over the whole scope. Attempts are read 500 at a
+ * time; the results of each block are fetched while the next block loads.
+ * Returns { items, results, capped }.
+ */
+export async function queryAllAttempts(source, scope, { max = 5000, onProgress } = {}) {
+  let cursor = null, more = true, items = [];
+  const results = new Map();
+  const pending = [];
+  while (more && items.length < max) {
+    const page = await queryAttempts(source, scope, { pageSize: Math.min(500, max - items.length), cursor });
+    items = items.concat(page.items);
+    cursor = page.cursor;
+    more = page.hasMore;
+    pending.push(fetchResults(source, page.items.map((a) => a.id)).then((m) => m.forEach((v, k) => results.set(k, v))));
+    onProgress?.(items.length);
+  }
+  await Promise.all(pending);
+  return { items, results, capped: more };
 }
 
 export function fetchResults(source, attemptIds) {

@@ -2,13 +2,19 @@
 // One class, configured by `source`, so both views behave the same way.
 //
 // Browse:   Grade -> Section -> Quiz (each choice narrows the Firestore query)
-// Filter:   search, status, submission dates (applied to the loaded records)
+// Pages:    50 records are read at a time (Next / Previous). Only that page's
+//           attempts and results are downloaded.
+// Filter:   search, status, submission dates and column sorting need every
+//           record of the scope, so the first time one is used the whole scope
+//           is read once (in blocks of 500) and then shown 50 per page.
+//           Summary cards and "all shown" actions do the same.
 // Actions:  per record, on selected records, or on all records shown.
 
 import {
-  queryAttempts, fetchResults, countAttempts, setReviewStatus, deleteRecords,
+  queryAttempts, queryAllAttempts, fetchResults, countAttempts, setReviewStatus, deleteRecords,
   archiveRecords, restoreRecords
 } from "./records.js";
+import { PAGE_SIZE, pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { gradeAttempts, needsGrading, clearKeyCache } from "./grading.js";
 import { buildBackup, summaryCsv, detailedCsv } from "./backup.js";
 import { buildReport, printHtml } from "./print.js";
@@ -21,7 +27,7 @@ import {
 } from "./utilities.js";
 
 const FLAG_THRESHOLD = 3;
-const PAGE_SIZE = 300;
+const MAX_ALL = 5000; // most records read at once for sorting, filtering and summaries
 const REVIEW_LABELS = { pending: "Pending review", accepted: "Accepted", declined: "Declined" };
 
 const STATUS_FILTERS = [
@@ -92,16 +98,20 @@ export class RecordsView {
     this.isArchive = source === "archive";
     const saved = storage.get(`cq_scope_${source}`) || {};
     this.scope = { grade: saved.grade || "", section: saved.section || "", quizId: saved.quizId || "" };
-    this.items = [];
+    this.items = [];           // the records on hand: one page, or the whole scope when full
     this.results = new Map();
-    this.cursor = null;
-    this.hasMore = false;
     this.rows = [];
+    this.known = new Map();    // every row seen since the last load (selection across pages)
     this.selected = new Set();
-    this.sort = { key: "studentName", dir: "asc" };
+    this.sort = { key: null, dir: "asc" }; // null: Firestore order (quiz, grade, section, roll)
     this.counts = { grades: new Map(), sections: new Map() };
+    this.page = 0;
+    this.pageStarts = [null];  // cursor before each page read so far
+    this.total = 0;
+    this.full = false;
+    this.capped = false;
     this.loaded = false;
-    this.busy = false;
+    this.seq = 0;
     this.renderSkeleton();
     this.bind();
     onTeacherChange(() => { if (this.loaded) { this.buildRows(); this.renderBrowse(); this.render(); } });
@@ -198,7 +208,7 @@ export class RecordsView {
           </table>
         </div>
         <div class="empty" data-empty hidden></div>
-        <div class="center load-more"><button type="button" class="btn btn-small" data-act="load-more" hidden>Load more</button></div>
+        <div data-pager></div>
       </div>`;
     this.$ = (sel) => this.el.querySelector(sel);
   }
@@ -206,7 +216,7 @@ export class RecordsView {
   bind() {
     this.el.addEventListener("click", (e) => this.onClick(e));
     this.el.addEventListener("change", (e) => this.onChange(e));
-    this.$('[data-filter="search"]').addEventListener("input", () => this.render());
+    this.$('[data-filter="search"]').addEventListener("input", () => { this.page = 0; this.render(); });
     document.addEventListener("click", (e) => {
       this.el.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
     });
@@ -216,35 +226,136 @@ export class RecordsView {
 
   saveScope() { storage.set(`cq_scope_${this.source}`, this.scope); }
 
-  async load({ more = false } = {}) {
-    // A scope change while loading: load again once the current load ends.
-    if (this.busy) { if (!more) this.reloadAfter = true; return; }
-    this.busy = true;
-    this.reloadAfter = false;
+  showLoading() {
+    this.$("[data-body]").innerHTML = skeletonRows(12, 8);
+    this.$(".records-table").hidden = false;
+    this.$("[data-empty]").hidden = true;
+    this.$("[data-pager]").innerHTML = "";
+  }
+
+  stamp() {
+    return `updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+
+  /** Starts over for the current scope: the count, then page 1 (or everything if sorting or filtering is on). */
+  async load() {
+    const seq = ++this.seq;
+    this.items = [];
+    this.results = new Map();
+    this.rows = [];
+    this.known.clear();
+    this.selected.clear();
+    this.page = 0;
+    this.pageStarts = [null];
+    this.full = false;
+    this.capped = false;
+    this.fullLoad = null;
     const info = this.$(".data-info");
     info.textContent = "Loading…";
-    if (!more) { this.$("[data-body]").innerHTML = skeletonRows(12, 8); this.$("[data-empty]").hidden = true; }
+    this.showLoading();
     try {
-      if (!more) { this.items = []; this.results = new Map(); this.cursor = null; this.selected.clear(); }
-      const page = await queryAttempts(this.source, this.scope, { pageSize: PAGE_SIZE, cursor: more ? this.cursor : null });
-      this.items = more ? [...this.items, ...page.items] : page.items;
-      this.cursor = page.cursor;
-      this.hasMore = page.hasMore;
-      const res = await fetchResults(this.source, page.items.map((a) => a.id));
-      res.forEach((v, k) => this.results.set(k, v));
+      this.total = await countAttempts(this.source, this.scope);
+      if (seq !== this.seq) return;
+      if (this.needsFull()) await this.loadFull(seq);
+      else await this.loadPage(0, seq);
+      if (seq !== this.seq) return;
       this.loaded = true;
-      this.buildRows();
-      info.textContent = `${pluralize(this.items.length, "record")} loaded at ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-      if (!more) this.loadCounts();
+      info.textContent = this.stamp();
+      this.loadCounts();
       this.renderBrowse();
       this.render();
     } catch (err) {
+      if (seq !== this.seq) return;
       console.error(err);
       info.textContent = "";
+      this.$("[data-body]").innerHTML = "";
       appNotice(`Could not load records. ${friendlyError(err)}`, "error");
-    } finally {
-      this.busy = false;
-      if (this.reloadAfter) this.load();
+    }
+  }
+
+  /** Reads page n (0-based) from Firestore: 50 attempts and their results. */
+  async loadPage(n, seq = this.seq) {
+    this.showLoading();
+    const page = await queryAttempts(this.source, this.scope, { pageSize: PAGE_SIZE, cursor: this.pageStarts[n] });
+    const results = await fetchResults(this.source, page.items.map((a) => a.id));
+    if (seq !== this.seq) return;
+    this.items = page.items;
+    this.results = results;
+    this.page = n;
+    this.pageStarts.length = n + 1;
+    if (page.hasMore) this.pageStarts.push(page.cursor);
+    if (!page.hasMore) this.total = n * PAGE_SIZE + page.items.length;
+    if (n === 0 && (!page.hasMore || page.items.length >= this.total)) this.full = true; // everything fits on one page
+    this.buildRows();
+  }
+
+  /** Reads every record of the scope (up to MAX_ALL). Returns false if a newer load started. */
+  async loadFull(seq = this.seq) {
+    this.showLoading();
+    const info = this.$(".data-info");
+    info.textContent = `Loading all ${this.total} records…`;
+    const all = await queryAllAttempts(this.source, this.scope, {
+      max: MAX_ALL,
+      onProgress: (n) => { if (seq === this.seq) info.textContent = `Loading… ${n} of ${this.total}`; }
+    });
+    if (seq !== this.seq) return false;
+    this.items = all.items;
+    this.results = all.results;
+    this.capped = all.capped;
+    this.full = true;
+    this.page = 0;
+    if (!all.capped) this.total = all.items.length;
+    this.buildRows();
+    info.textContent = this.stamp();
+    return true;
+  }
+
+  /** Makes sure the whole scope is loaded (once); renders when it arrives. */
+  async ensureFull() {
+    if (this.full) return true;
+    if (!this.fullLoad) {
+      const seq = this.seq;
+      this.fullLoad = this.loadFull(seq)
+        .then((ok) => { if (ok) this.render(); return ok; })
+        .catch((err) => {
+          console.error(err);
+          this.$(".data-info").textContent = "";
+          appNotice(`Could not load all records. ${friendlyError(err)}`, "error");
+          return false;
+        })
+        .finally(() => { this.fullLoad = null; });
+    }
+    return (await this.fullLoad) && this.full;
+  }
+
+  async goToPage(n) {
+    if (this.full) { this.page = n; this.render(); }
+    else {
+      try { await this.loadPage(n); this.render(); } catch (err) { console.error(err); appNotice(`Could not load the page. ${friendlyError(err)}`, "error"); this.render(); }
+    }
+    this.$(".table-card").scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
+  /** After records were removed: re-read the current page (page mode) or drop them locally (full). */
+  async afterRemove(ids) {
+    ids.forEach((id) => { this.results.delete(id); this.selected.delete(id); this.known.delete(id); });
+    if (this.full) {
+      this.items = this.items.filter((a) => !ids.has(a.id));
+      this.total = Math.max(0, this.total - ids.size);
+      this.buildRows();
+      this.render();
+      return;
+    }
+    const seq = ++this.seq;
+    try {
+      this.total = await countAttempts(this.source, this.scope);
+      if (seq !== this.seq) return;
+      await this.loadPage(this.page, seq);
+      if (seq === this.seq && !this.items.length && this.page > 0) await this.loadPage(this.page - 1, seq);
+      if (seq === this.seq) this.render();
+    } catch (err) {
+      console.error(err);
+      this.load();
     }
   }
 
@@ -277,6 +388,20 @@ export class RecordsView {
 
   buildRows() {
     this.rows = this.items.map((a) => toRow(a, this.results.get(a.id) || null, this.isArchive));
+    this.rows.forEach((r) => this.known.set(r.id, r));
+  }
+
+  filtersOn() {
+    return ["search", "status", "from", "to"].some((f) => this.$(`[data-filter="${f}"]`).value);
+  }
+
+  /** Sorting and filtering apply to every record of the scope, so they need all of it. */
+  needsFull() {
+    return !!this.sort.key || this.filtersOn();
+  }
+
+  selectedRows() {
+    return [...this.selected].map((id) => this.known.get(id)).filter(Boolean);
   }
 
   filteredRows() {
@@ -370,15 +495,19 @@ export class RecordsView {
 
   render() {
     if (!this.loaded) return;
+    if (this.needsFull() && !this.full) { this.showLoading(); this.ensureFull(); return; }
     const all = this.rows;
-    const shown = this.sortedRows(this.filteredRows());
-    this.shown = shown;
+    const shown = this.full ? this.sortedRows(this.filteredRows()) : all;
+    this.shown = shown; // "all shown": every matching record, on every page
+    if (this.full) this.page = clampPage(this.page, shown.length);
+    const pageRows = this.full ? pageSlice(shown, this.page) : all;
+    this.pageRows = pageRows;
 
-    if (!this.isArchive) this.renderSummary(all);
+    if (!this.isArchive) { if (this.full) this.renderSummary(all); else this.renderSummaryPlaceholder(); }
 
     paintSortHeaders(this.el, this.sort);
 
-    this.$("[data-body]").innerHTML = shown.map((r) => `
+    this.$("[data-body]").innerHTML = pageRows.map((r) => `
       <tr data-id="${escapeHtml(r.id)}" class="${this.selected.has(r.id) ? "selected" : ""}">
         <td class="col-check"><input type="checkbox" data-select="${escapeHtml(r.id)}"${this.selected.has(r.id) ? " checked" : ""} aria-label="Select ${escapeHtml(r.studentName)}"></td>
         <td class="name-cell"><a href="result.html?id=${encodeURIComponent(r.id)}${this.isArchive ? "&source=archive" : ""}">${escapeHtml(r.studentName)}</a></td>
@@ -394,10 +523,10 @@ export class RecordsView {
         <td class="col-actions">${this.rowActions(r)}</td>
       </tr>`).join("");
 
-    const filtersOn = ["search", "status", "from", "to"].some((f) => this.$(`[data-filter="${f}"]`).value);
-    this.$("[data-count]").textContent = filtersOn
-      ? `Showing ${shown.length} of ${pluralize(all.length, "record")}${this.hasMore ? " loaded" : ""}`
-      : `${pluralize(all.length, "record")}${this.hasMore ? " loaded (more available)" : ""}`;
+    const capped = this.capped ? ` (first ${MAX_ALL.toLocaleString()} only: choose a grade or quiz)` : "";
+    this.$("[data-count]").textContent = this.full && this.filtersOn()
+      ? `Showing ${shown.length} of ${pluralize(all.length, "record")}${capped}`
+      : `${pluralize(this.full ? all.length : this.total, "record")}${capped}`;
     const empty = this.$("[data-empty]");
     if (!all.length) {
       empty.textContent = this.isArchive ? "No archived records here." : "No student records here yet.";
@@ -407,7 +536,9 @@ export class RecordsView {
       empty.hidden = false;
     } else empty.hidden = true;
     this.$(".records-table").hidden = !shown.length;
-    this.$('[data-act="load-more"]').hidden = !this.hasMore;
+    this.$("[data-pager]").innerHTML = this.full
+      ? pagerHtml({ page: this.page, total: shown.length })
+      : pagerHtml({ page: this.page, total: this.total, reachable: this.pageStarts.length - 1 });
     this.renderSelection();
   }
 
@@ -434,12 +565,18 @@ export class RecordsView {
     this.$("[data-grade-text]").textContent = `${pluralize(eligible, "submission")} ${eligible === 1 ? "needs" : "need"} grading.`;
   }
 
+  renderSummaryPlaceholder() {
+    this.$("[data-summary]").innerHTML = `<div class="summary-lazy card"><span class="small muted">The summary uses all ${pluralize(this.total, "record")}.</span>
+      <button type="button" class="btn btn-small" data-act="load-summary">Show summary</button></div>`;
+    this.$("[data-grade-banner]").hidden = true;
+  }
+
   renderSelection() {
-    const n = [...this.selected].filter((id) => this.rows.some((r) => r.id === id)).length;
+    const n = this.selectedRows().length;
     this.$("[data-selection]").hidden = n === 0;
     this.$("[data-sel-count]").textContent = `${n} selected`;
     const all = this.$('[data-act="select-all"]');
-    const shownIds = (this.shown || []).map((r) => r.id);
+    const shownIds = (this.pageRows || []).map((r) => r.id);
     const selShown = shownIds.filter((id) => this.selected.has(id)).length;
     all.checked = shownIds.length > 0 && selShown === shownIds.length;
     all.indeterminate = selShown > 0 && selShown < shownIds.length;
@@ -454,9 +591,10 @@ export class RecordsView {
       t.closest("tr").classList.toggle("selected", t.checked);
       this.renderSelection();
     } else if (t.matches('[data-act="select-all"]')) {
-      (this.shown || []).forEach((r) => { if (t.checked) this.selected.add(r.id); else this.selected.delete(r.id); });
+      (this.pageRows || []).forEach((r) => { if (t.checked) this.selected.add(r.id); else this.selected.delete(r.id); });
       this.render();
     } else if (t.matches("[data-filter]")) {
+      this.page = 0;
       this.render();
     } else if (t.matches(".scope-quiz")) {
       this.scope.quizId = t.value;
@@ -483,9 +621,12 @@ export class RecordsView {
     const th = e.target.closest("th[data-sort]");
     if (th) {
       this.sort = nextSort(this.sort, th.dataset.sort, ["obtained", "percentage", "submittedMs", "focusLossCount"]);
+      this.page = 0;
       this.render();
       return;
     }
+    const pageBtn = e.target.closest("[data-page]");
+    if (pageBtn) { if (!pageBtn.disabled) this.goToPage(Number(pageBtn.dataset.page)); return; }
     const rowBtn = e.target.closest("[data-row-act]");
     if (rowBtn) {
       rowBtn.closest("details")?.removeAttribute("open");
@@ -498,18 +639,24 @@ export class RecordsView {
     act.closest("details")?.removeAttribute("open");
     const name = act.dataset.act;
     if (name === "refresh") { this.load(); return; }
-    if (name === "load-more") { this.load({ more: true }); return; }
+    if (name === "load-summary") { this.ensureFull(); return; }
     if (name === "clear-filters") {
       ["search", "status", "from", "to"].forEach((f) => { this.$(`[data-filter="${f}"]`).value = ""; });
+      this.page = 0;
       this.render();
       return;
     }
     if (name === "clear-selection") { this.selected.clear(); this.render(); return; }
-    if (name === "grade-eligible") { this.runAction("grade", this.eligibleForGrading(this.rows), "eligible records"); return; }
+    this.bulk(name);
+  }
+
+  async bulk(name) {
     const [verb, which] = name.split("-");
-    const targets = which === "selected"
-      ? this.rows.filter((r) => this.selected.has(r.id))
-      : (this.shown || []);
+    if (name !== "grade-eligible" && which !== "selected" && which !== "filtered") return;
+    // Actions on "all shown" (and grading all eligible) cover every page.
+    if (which !== "selected" && !(await this.ensureFull())) return;
+    if (name === "grade-eligible") { this.runAction("grade", this.eligibleForGrading(this.rows), "eligible records"); return; }
+    const targets = which === "selected" ? this.selectedRows() : (this.shown || []);
     this.runAction(verb === "regrade" ? "regrade" : verb, targets, which === "selected" ? "selected records" : "records shown");
   }
 
@@ -688,11 +835,7 @@ export class RecordsView {
   }
 
   removeRows(rows) {
-    const ids = new Set(rows.map((r) => r.id));
-    this.items = this.items.filter((a) => !ids.has(a.id));
-    ids.forEach((id) => { this.results.delete(id); this.selected.delete(id); });
-    this.buildRows();
-    this.render();
+    this.afterRemove(new Set(rows.map((r) => r.id)));
     this.loadCounts();
   }
 }

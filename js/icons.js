@@ -72,7 +72,7 @@ const BY_ACTION = {
   open: () => "chevron-right"
 };
 const AFTER_TEXT = new Set(["arrow-right", "chevron-right", "angles-down"]);
-const SKIP = ".qtab, .cselect-button, .cdate-button, .cdate-day, .cdate-nav, .cdate-link, .chip, .tab, .nav-num, .option, .link-btn, .affix-btn, [data-icon='none']";
+const SKIP = ".qtab, .cselect-button, .cdate-button, .cdate-day, .cdate-nav, .cdate-link, .chip, .tab, .nav-num, .option, .link-btn, .affix-btn, .pager-btn, [data-icon='none']";
 const TARGETS = "button, a.btn, summary.btn, .menu-list > a";
 
 function iconFor(el) {
