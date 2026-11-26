@@ -10,9 +10,10 @@
 // index is needed. Results are fetched only for the attempts on screen.
 
 import {
-  db, auth, doc, getDocs, collection, query, where, limit, startAfter, writeBatch,
+  db, auth, doc, getDoc, getDocs, collection, query, where, limit, startAfter, writeBatch,
   serverTimestamp, documentId, getCountFromServer, orderBy
 } from "./firebase.js";
+import { classPairs, session } from "./roles.js";
 
 export const SOURCES = {
   active: { attempts: "attempts", results: "results" },
@@ -29,7 +30,24 @@ function scopeFilters(scope = {}) {
   if (scope.section) parts.push(where("section", "==", String(scope.section)));
   if (scope.quizId) parts.push(where("quizId", "==", scope.quizId));
   if (scope.rollNo) parts.push(where("rollNo", "==", String(scope.rollNo)));
+  if (scope.studentId) parts.push(where("studentId", "==", scope.studentId));
   return parts;
+}
+
+/**
+ * The Firestore queries a scope needs. The Admin queries any scope directly.
+ * A teacher's query must name one of their grades AND sections (the rules
+ * refuse anything wider), so a wider scope becomes one query per class.
+ */
+export function splitScope(scope = {}) {
+  const pairs = classPairs(scope);
+  if (pairs === null) return [scope];
+  return pairs.map((p) => ({ ...scope, grade: p.grade, section: p.section }));
+}
+
+/** True when a scope needs more than one query (teachers): it cannot be paged, only loaded whole. */
+export function isSplitScope(scope) {
+  return splitScope(scope).length !== 1;
 }
 
 /**
@@ -37,6 +55,13 @@ function scopeFilters(scope = {}) {
  * paging). Returns { items, cursor, hasMore }.
  */
 export async function queryAttempts(source, scope, { pageSize = 300, cursor = null } = {}) {
+  const scopes = splitScope(scope);
+  if (scopes.length !== 1) {
+    // Several classes: read them all (teachers have few records).
+    const all = await queryAllAttempts(source, scope, { max: 5000 });
+    return { items: all.items, cursor: null, hasMore: false };
+  }
+  scope = scopes[0];
   const parts = [...scopeFilters(scope), orderBy(documentId())];
   if (cursor) parts.push(startAfter(cursor));
   parts.push(limit(pageSize));
@@ -50,8 +75,11 @@ export async function queryAttempts(source, scope, { pageSize = 300, cursor = nu
 
 /** Number of attempts in a scope (1 read per 1000 counted). */
 export async function countAttempts(source, scope) {
-  const snap = await getCountFromServer(query(collection(db, SOURCES[source].attempts), ...scopeFilters(scope)));
-  return snap.data().count;
+  const counts = await Promise.all(splitScope(scope).map(async (sc) => {
+    const snap = await getCountFromServer(query(collection(db, SOURCES[source].attempts), ...scopeFilters(sc)));
+    return snap.data().count;
+  }));
+  return counts.reduce((a, b) => a + b, 0);
 }
 
 /** Loads documents by id from one collection: 30 ids per query, up to 6 queries at a time. */
@@ -78,23 +106,41 @@ async function getByIds(collectionName, ids) {
  * Returns { items, results, capped }.
  */
 export async function queryAllAttempts(source, scope, { max = 5000, onProgress } = {}) {
-  let cursor = null, more = true, items = [];
+  let items = [];
+  let more = false;
   const results = new Map();
   const pending = [];
-  while (more && items.length < max) {
-    const page = await queryAttempts(source, scope, { pageSize: Math.min(500, max - items.length), cursor });
-    items = items.concat(page.items);
-    cursor = page.cursor;
-    more = page.hasMore;
-    pending.push(fetchResults(source, page.items.map((a) => a.id)).then((m) => m.forEach((v, k) => results.set(k, v))));
-    onProgress?.(items.length);
+  const scopes = splitScope(scope);
+  const split = classPairs(scope) !== null;
+  for (const sc of scopes) {
+    let cursor = null;
+    more = true;
+    while (more && items.length < max) {
+      const page = await queryAttempts(source, sc, { pageSize: Math.min(500, max - items.length), cursor });
+      items = items.concat(page.items);
+      cursor = page.cursor;
+      more = page.hasMore;
+      if (!split) pending.push(fetchResults(source, page.items.map((a) => a.id)).then((m) => m.forEach((v, k) => results.set(k, v))));
+      onProgress?.(items.length);
+    }
+    // Teachers read the results of each class with one query (same filters).
+    if (split) pending.push(getDocs(query(collection(db, SOURCES[source].results), ...scopeFilters(sc)))
+      .then((snap) => snap.docs.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }))));
+    if (items.length >= max) break;
   }
   await Promise.all(pending);
-  return { items, results, capped: more };
+  return { items, results, capped: more && items.length >= max };
 }
 
-export function fetchResults(source, attemptIds) {
-  return getByIds(SOURCES[source].results, attemptIds);
+/** Results by attempt id. Teachers read them one by one (the rules check each class). */
+export async function fetchResults(source, attemptIds) {
+  if (classPairs({}) === null) return getByIds(SOURCES[source].results, attemptIds);
+  const out = new Map();
+  for (let i = 0; i < attemptIds.length; i += 20) {
+    const snaps = await Promise.all(attemptIds.slice(i, i + 20).map((id) => getDoc(doc(db, SOURCES[source].results, id)).catch(() => null)));
+    snaps.forEach((snap) => { if (snap?.exists()) out.set(snap.id, { id: snap.id, ...snap.data() }); });
+  }
+  return out;
 }
 
 /** Which of these ids already exist in the active or archived attempts. */
@@ -142,7 +188,7 @@ async function runGrouped(groups, onProgress) {
   return done;
 }
 
-const teacherName = () => auth.currentUser?.email || auth.currentUser?.uid || "";
+const teacherName = () => session.name || session.username || auth.currentUser?.email || auth.currentUser?.uid || "";
 
 function stripId(obj) {
   if (!obj) return null;
@@ -216,6 +262,8 @@ export function allowRetake(record) {
     ops: [
       { type: "set", col: "attempts", id: newId, data: { ...stripId(record.attempt), ...mark } },
       ...(record.result ? [{ type: "set", col: "results", id: newId, data: { ...stripId(record.result), attemptId: newId } }] : []),
+      // Lets the rules check that the original was moved, not deleted.
+      { type: "set", col: "retakes", id: record.id, data: { copyId: newId, at: serverTimestamp(), by: teacherName() } },
       { type: "delete", col: "attempts", id: record.id },
       { type: "delete", col: "results", id: record.id }
     ]
@@ -231,4 +279,41 @@ export function importRecords(target, records, onProgress) {
       ...(r.result ? [{ type: "set", col: cols.results, id: r.id, data: r.result }] : [])
     ]
   })), onProgress);
+}
+
+/**
+ * Every record of one student: attempts linked by studentId, plus older
+ * attempts of their grade + section + roll number not linked yet.
+ * student: { id?, grade, section, rollNo }. Returns [{ source, attempt, result }].
+ */
+export async function fetchStudentRecords(student, { archive = false } = {}) {
+  const sources = archive ? ["active", "archive"] : ["active"];
+  const out = new Map();
+  for (const source of sources) {
+    const scopes = [];
+    if (student.id) scopes.push({ studentId: student.id });
+    if (student.grade && student.section && student.rollNo) scopes.push({ grade: student.grade, section: student.section, rollNo: student.rollNo, unlinked: true });
+    for (const sc of scopes) {
+      const { unlinked, ...scope } = sc;
+      const { items, results } = await queryAllAttempts(source, scope, { max: 2000 });
+      items.forEach((a) => {
+        if (unlinked && a.studentId && a.studentId !== student.id) return; // another student's
+        out.set(`${source}:${a.id}`, { source, id: a.id, attempt: a, result: results.get(a.id) || null });
+      });
+    }
+  }
+  return [...out.values()];
+}
+
+/** Active records by attempt id (missing or not allowed ones are left out). */
+export async function fetchRecordsByIds(ids) {
+  const out = [];
+  for (let i = 0; i < ids.length; i += 20) {
+    const chunk = ids.slice(i, i + 20);
+    const snaps = await Promise.all(chunk.map((id) => getDoc(doc(db, "attempts", id)).catch(() => null)));
+    const found = snaps.filter((s) => s?.exists());
+    const results = await fetchResults("active", found.map((s) => s.id));
+    found.forEach((s) => out.push({ source: "active", id: s.id, attempt: { id: s.id, ...s.data() }, result: results.get(s.id) || null }));
+  }
+  return out;
 }

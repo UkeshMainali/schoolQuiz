@@ -5,6 +5,8 @@
 import { db, collection, getDocs } from "./firebase.js";
 import { loadSettings, showNotice, hideNotice } from "./utilities.js";
 import { loadCategories } from "./quizCategories.js";
+import { loadStudents } from "./students.js";
+import { quizForMyClasses } from "./roles.js";
 
 export const teacher = {
   settings: null,
@@ -14,8 +16,18 @@ export const teacher = {
 };
 
 export async function loadTeacherData() {
-  const [settings] = await Promise.all([loadSettings(), reloadQuizzes(), reloadCategories()]);
+  const [settings] = await Promise.all([loadSettings(), reloadQuizzes(), reloadCategories(), reloadStudents()]);
   teacher.settings = settings;
+}
+
+/** Student names and ids (shown instead of the names typed on old quizzes). */
+export async function reloadStudents() {
+  try {
+    await loadStudents();
+  } catch (err) {
+    console.warn("Could not load students", err);
+  }
+  notify("students");
 }
 
 /** Reads the quiz tabs. A failure leaves the previous list (quizzes still show under Uncategorized). */
@@ -59,6 +71,7 @@ function notify(what) { teacher.listeners.forEach((fn) => { try { fn(what); } ca
 export function sortedQuizzes({ grade = "", includeArchived = false } = {}) {
   return [...teacher.quizzes.values()]
     .filter((q) => includeArchived || !q.archived)
+    .filter((q) => quizForMyClasses(q)) // teachers: their quizzes and those for their classes
     .filter((q) => !grade || !q.grade || String(q.grade) === String(grade))
     .sort((a, b) => String(a.grade).localeCompare(String(b.grade), undefined, { numeric: true }) ||
       String(a.title).localeCompare(String(b.title), undefined, { numeric: true }));
@@ -68,7 +81,7 @@ export function quizTitle(quizId, fallback = "") {
   return teacher.quizzes.get(quizId)?.title || fallback || quizId;
 }
 
-const noticeEl = () => document.getElementById("appNotice");
+const noticeEl = () => document.getElementById("appNotice") || document.getElementById("notice"); // result.html uses #notice
 export function appNotice(text, type = "info") {
   const el = noticeEl();
   if (!el) return;

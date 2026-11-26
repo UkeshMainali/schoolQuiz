@@ -14,11 +14,13 @@ import { withTimeout } from "./utilities.js";
  * grades existed (no "grade" field at all) are still found. Starting a quiz
  * of another grade is refused by the security rules.
  */
-export async function loadActiveQuizzes(grade) {
+export async function loadActiveQuizzes(grade, section) {
   const snap = await getDocs(query(collection(db, "quizzes"), where("active", "==", true)));
   return snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((q) => !q.archived && (!q.grade || String(q.grade) === String(grade)));
+    .filter((q) => !q.archived && (!q.grade || String(q.grade) === String(grade)))
+    // A quiz for some sections only (teachers' quizzes) is shown to those sections.
+    .filter((q) => !Array.isArray(q.sections) || !q.sections.length || !section || q.sections.includes(String(section)));
 }
 
 /**
@@ -61,6 +63,7 @@ export async function createAttempt(attemptId, { quiz, student, order, optionOrd
     quizTitle: quiz.title,
     studentName: student.name,
     nameLower: student.name.toLowerCase(),
+    ...(student.studentId ? { studentId: student.studentId } : {}),
     rollNo: student.roll,
     grade: student.grade,
     section: student.section,

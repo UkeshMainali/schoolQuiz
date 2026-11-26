@@ -5,7 +5,8 @@ import { queryAllAttempts } from "./records.js";
 import { toRow } from "./recordsView.js";
 import { teacher, sortedQuizzes, quizTitle, appNotice, onTeacherChange } from "./teacherState.js";
 import { overview, groupBy, scoreBands, studentStats, questionStats, lessonStats, countable } from "./analytics.js";
-import { escapeHtml, friendlyError, sectionsFor, pluralize, historyLink, skeleton } from "./utilities.js";
+import { escapeHtml, friendlyError, pluralize, historyLink, skeleton } from "./utilities.js";
+import { isAdmin, myGrades, mySections } from "./roles.js";
 
 const MAX_RECORDS = 3000;
 
@@ -47,8 +48,9 @@ export class AnalyticsView {
   fillFilters() {
     const g = this.$('[data-f="grade"]');
     const cur = g.value;
-    g.innerHTML = '<option value="">All grades</option>' + teacher.settings.grades.map((x) => `<option value="${escapeHtml(x)}">Grade ${escapeHtml(x)}</option>`).join("");
-    g.value = teacher.settings.grades.includes(cur) ? cur : "";
+    const grades = myGrades(teacher.settings);
+    g.innerHTML = `<option value="">${isAdmin() ? "All grades" : "All my classes"}</option>` + grades.map((x) => `<option value="${escapeHtml(x)}">Grade ${escapeHtml(x)}</option>`).join("");
+    g.value = grades.includes(cur) ? cur : "";
     this.fillSections();
     this.fillQuizzes();
   }
@@ -56,7 +58,7 @@ export class AnalyticsView {
   fillSections() {
     const grade = this.$('[data-f="grade"]').value;
     const s = this.$('[data-f="section"]');
-    s.innerHTML = '<option value="">All sections</option>' + (grade ? sectionsFor(teacher.settings, grade) : []).map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("");
+    s.innerHTML = '<option value="">All sections</option>' + (grade ? mySections(teacher.settings, grade) : []).map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("");
     s.disabled = !grade;
   }
 
@@ -197,7 +199,7 @@ export class AnalyticsView {
           ${single ? "" : `<td class="num">${s.attempted}</td><td class="num">${s.completed}</td>`}
           <td class="num">${s.graded}</td><td class="num">${s.avgPercent === null ? "—" : `${s.avgPercent}%`}</td>
           <td class="num">${s.best === null ? "—" : `${s.best}%`}</td><td class="num">${s.worst === null ? "—" : `${s.worst}%`}</td>
-          <td><a class="small" href="${escapeHtml(historyLink(s.grade, s.section, s.rollNo))}">History</a></td></tr>`).join("")}</tbody>
+          <td><a class="small" href="${escapeHtml(historyLink(s.grade, s.section, s.rollNo))}">Record</a></td></tr>`).join("")}</tbody>
       </table></div></div>`;
   }
 

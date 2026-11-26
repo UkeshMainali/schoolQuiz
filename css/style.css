@@ -588,3 +588,58 @@ input[type="checkbox"]:active, input[type="radio"]:active { transform: scale(0.9
 .skel-item > div { flex: 1; }
 .skel-option { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-top: 12px; }
 .skeleton .card { margin: 0; }
+
+/* EES logo (header, sidebar, sign-in) */
+.brand-logo { display: block; height: 46px; width: auto; max-width: 100%; }
+.brand-logo-lg { height: 60px; }
+.brand:focus-visible, .side-brand:focus-visible, .auth-brand:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: 6px; }
+.auth-aside .auth-brand:focus-visible { outline-color: #fff; }
+@media (max-width: 520px) {
+  .brand-logo { height: 36px; }
+  .brand-logo-lg { height: 48px; }
+}
+@media (max-width: 360px) {
+  .brand-logo { height: 32px; }
+}
+
+/* ---------------------------------------------------------------- Roles upgrade (shared) */
+
+/* Wider form dialogs (teacher accounts, requests, student details) */
+.modal.modal-wide { max-width: 620px; }
+.modal .fm-body { display: grid; gap: 12px; margin: 8px 0 4px; }
+.modal .fm-body .field { margin: 0; }
+.error-text { color: var(--danger); font-size: 0.85rem; margin-top: 4px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px 16px; }
+.form-grid .field { margin: 0; }
+.form-grid .span-all { grid-column: 1 / -1; }
+
+/* Grade + section picker (teacher classes, quiz sections) */
+.class-picker { display: grid; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; max-height: 280px; overflow-y: auto; background: var(--surface); }
+.class-row { display: grid; grid-template-columns: 84px minmax(0, 1fr); align-items: center; gap: 10px; padding: 4px 0; }
+.class-row + .class-row { border-top: 1px dashed var(--border); }
+.class-grade { font-size: 0.85rem; font-weight: 600; color: var(--text-2); }
+.class-secs { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-check { position: relative; display: inline-flex; cursor: pointer; }
+.chip-check input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.chip-check span {
+  display: inline-flex; align-items: center; min-width: 34px; justify-content: center; padding: 4px 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-size: 0.85rem; color: var(--text-2);
+  background: var(--surface); transition: background-color var(--t-fast, 0.12s), border-color var(--t-fast, 0.12s), color var(--t-fast, 0.12s);
+}
+.chip-check:hover span { background: var(--hover); }
+.chip-check input:checked + span { background: var(--primary-soft); border-color: var(--primary-line); color: var(--primary); font-weight: 600; }
+.chip-check input:focus-visible + span { box-shadow: 0 0 0 3px var(--ring); }
+.chip-check input:disabled + span { opacity: 0.5; cursor: not-allowed; }
+
+/* Student sign-in: looking up roll number + grade + section */
+.lookup-status { display: flex; align-items: center; gap: 8px; margin: 4px 0 12px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 0.9rem; background: var(--neutral-soft); color: var(--text-2); }
+.lookup-status.is-found { background: var(--success-soft); color: var(--text); border: 1px solid var(--success-line); }
+.lookup-status.is-new { background: var(--primary-soft); color: var(--text); border: 1px solid var(--primary-line); }
+.lookup-status.is-error { background: var(--danger-soft); color: var(--danger); border: 1px solid var(--danger-line); }
+input.is-locked, input[readonly].is-locked { background: var(--neutral-soft); color: var(--text); font-weight: 600; cursor: default; }
+
+/* Keyboard keys */
+kbd, .kbd {
+  display: inline-block; min-width: 1.6em; padding: 1px 6px; font: 600 0.8rem/1.5 var(--font); text-align: center;
+  color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: var(--radius-xs);
+}

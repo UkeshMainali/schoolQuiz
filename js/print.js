@@ -11,6 +11,7 @@
 import { loadAnswerKey, gradeAttempt, needsGrading } from "./grading.js";
 import { performance, groupByStudent } from "./analytics.js";
 import { escapeHtml, formatDateTime, toDate } from "./utilities.js";
+import { nameFor, studentFor } from "./students.js";
 
 const REVIEW_LABELS = { accepted: "Accepted", declined: "Declined", pending: "Pending review" };
 const fmt = (v, suffix = "") => (v === null || v === undefined ? "—" : `${v}${suffix}`);
@@ -51,7 +52,7 @@ function toEntry(e, key, quiz, passPercent) {
   return {
     id: e.id || a.id, attempt: a, result: e.result, computed,
     quizId: a.quizId, quizTitle: a.quizTitle || quiz?.title || a.quizId, merged: !!quiz?.merged,
-    studentName: a.studentName, rollNo: a.rollNo, grade: a.grade, section: a.section,
+    studentName: nameFor(a), studentId: studentFor(a)?.id || a.studentId || "", rollNo: a.rollNo, grade: a.grade, section: a.section,
     grading, review: submitted ? (a.reviewStatus || "pending") : null,
     obtained: s ? s.obtainedMarks : null, total: s ? s.totalMarks : (computed.summary?.totalMarks ?? quiz?.totalMarks ?? null),
     percentage: s ? s.percentage : null, passed: s ? !!s.passed : null,

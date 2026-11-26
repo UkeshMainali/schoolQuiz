@@ -17,8 +17,11 @@ import { teacher, reloadQuizzes, reloadCategories, setCategories, appNotice, onT
 import { pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage, skeleton } from "./utilities.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
+import { session, isAdmin, ownsQuiz, myGrades, mySections } from "./roles.js";
+import { countAttempts } from "./records.js";
+import { logActivity } from "./auth.js";
 import {
-  ALL, UNCATEGORIZED, UNCATEGORIZED_NAME, addCategory, renameCategory, deleteCategory, moveQuizzes,
+  ALL, UNCATEGORIZED, addCategory, renameCategory, deleteCategory, moveQuizzes,
   nameProblem, categoryOf, categoryName
 } from "./quizCategories.js";
 
@@ -34,10 +37,19 @@ const QUIZ_VALUE = {
   questions: (q) => (typeof q.questionCount === "number" ? q.questionCount : null),
   marks: (q) => (typeof q.totalMarks === "number" ? q.totalMarks : null),
   status: STATUS_ORDER,
-  created: (q) => toDate(q.createdAt || q.importedAt)?.getTime() ?? null
+  created: (q) => toDate(q.createdAt || q.importedAt)?.getTime() ?? null,
+  owner: (q) => ownerLabel(q),
+  attempts: (q) => null // filled in by the view (counts load lazily)
 };
 
 const gradeLabel = (g) => (g ? `Grade ${escapeHtml(g)}` : "Any grade");
+/** "Sections A, B" or "All sections". */
+const sectionsLabel = (q) => (Array.isArray(q.sections) && q.sections.length ? `Section ${q.sections.map(escapeHtml).join(", ")}` : "All sections");
+/** Who owns a quiz: a teacher's name, or "Admin" (also for quizzes made before roles existed). */
+export function ownerLabel(q) {
+  if (q.ownerRole === "teacher") return q.ownerName || "Teacher";
+  return q.ownerId ? (q.ownerName || "Admin") : "Admin (older quiz)";
+}
 const typeSummary = (questions) => Object.entries(questions.reduce((m, q) => ({ ...m, [q.type]: (m[q.type] || 0) + 1 }), {}))
   .map(([t, n]) => `${n} ${t.replace("_", " ")}`).join(", ");
 
@@ -45,7 +57,8 @@ export class QuizAdmin {
   constructor(container) {
     this.el = container;
     this.imp = null;
-    this.filters = { search: "", grade: "", status: "" };
+    this.filters = { search: "", grade: "", status: "", owner: "" };
+    this.attemptCounts = new Map(); // quizId -> number (loaded for the quizzes on screen)
     this.sort = { key: "grade", dir: "asc" }; // then title
     this.tab = storage.get(TAB_KEY) ?? ALL;
     this.selected = new Set();
@@ -74,6 +87,7 @@ export class QuizAdmin {
         <div class="filters">
           <label class="stack-field grow"><span>Search</span><input type="search" data-q="search" placeholder="Quiz title or ID"></label>
           <label class="stack-field"><span>Grade</span><select data-q="grade"></select></label>
+          ${isAdmin() ? '<label class="stack-field"><span>Created by</span><select data-q="owner"></select></label>' : ""}
           <label class="stack-field"><span>Status</span><select data-q="status">
             <option value="">Open and closed</option><option value="open">Open</option><option value="closed">Closed</option><option value="archived">Archived</option><option value="all">All, including archived</option>
           </select></label>
@@ -91,8 +105,10 @@ export class QuizAdmin {
               <th data-sort="title">Quiz</th>
               <th data-sort="grade">Grade</th>
               <th data-sort="category">Tab</th>
+              ${isAdmin() ? '<th data-sort="owner">Created by</th>' : ""}
               <th data-sort="questions" class="num">Questions</th>
               <th data-sort="marks" class="num">Marks</th>
+              <th data-sort="attempts" class="num" title="Student attempts${isAdmin() ? "" : " in your classes"}">Attempts</th>
               <th data-sort="status">Status</th>
               <th data-sort="created">Created</th>
               <th class="actions-col">Actions</th>
@@ -119,7 +135,9 @@ export class QuizAdmin {
     this.$("search").addEventListener("input", (e) => { this.filters.search = e.target.value; this.qpage = 0; this.renderList(); });
     this.$("grade").addEventListener("change", (e) => { this.filters.grade = e.target.value; this.qpage = 0; this.renderList(); });
     this.$("status").addEventListener("change", (e) => { this.filters.status = e.target.value; this.qpage = 0; this.renderList(); });
+    this.$("owner")?.addEventListener("change", (e) => { this.filters.owner = e.target.value; this.qpage = 0; this.renderList(); });
     this.$("refresh").addEventListener("click", async () => {
+      this.attemptCounts.clear();
       try { await Promise.all([reloadQuizzes(), reloadCategories()]); appNotice("Quiz list refreshed.", "success"); } catch (err) { appNotice(friendlyError(err), "error"); }
     });
     this.$("list").addEventListener("click", (e) => this.onListClick(e));
@@ -147,7 +165,7 @@ export class QuizAdmin {
     this.el.querySelector(".quiz-table thead").addEventListener("click", (e) => {
       const th = e.target.closest("th[data-sort]");
       if (!th) return;
-      this.sort = nextSort(this.sort, th.dataset.sort, ["questions", "marks", "created"]);
+      this.sort = nextSort(this.sort, th.dataset.sort, ["questions", "marks", "created", "attempts"]);
       this.qpage = 0;
       this.renderList();
     });
@@ -205,6 +223,9 @@ export class QuizAdmin {
 
   tabExists(id) { return id === ALL || teacher.categories.some((c) => c.id === id); }
 
+  /** The quizzes this page manages: all for the Admin, a teacher's own for a teacher. */
+  myQuizzes() { return [...teacher.quizzes.values()].filter((q) => ownsQuiz(q)); }
+
   setTab(id) {
     this.tab = this.tabExists(id) ? id : ALL;
     storage.set(TAB_KEY, this.tab);
@@ -217,7 +238,7 @@ export class QuizAdmin {
   tabCounts() {
     const counts = new Map([[ALL, 0]]);
     teacher.categories.forEach((c) => counts.set(c.id, 0));
-    [...teacher.quizzes.values()].filter((q) => this.statusMatches(q)).forEach((q) => {
+    this.myQuizzes().filter((q) => this.statusMatches(q)).forEach((q) => {
       const c = categoryOf(q, teacher.categories);
       counts.set(ALL, counts.get(ALL) + 1);
       counts.set(c, (counts.get(c) || 0) + 1);
@@ -290,7 +311,7 @@ export class QuizAdmin {
     const cat = teacher.categories.find((c) => c.id === this.tab);
     if (!cat) return;
     // Every quiz on this tab, archived ones included.
-    const ids = [...teacher.quizzes.values()].filter((q) => categoryOf(q, teacher.categories) === cat.id).map((q) => q.id);
+    const ids = this.myQuizzes().filter((q) => categoryOf(q, teacher.categories) === cat.id).map((q) => q.id);
     let moveTo = UNCATEGORIZED;
     if (ids.length) {
       const others = [...teacher.categories.filter((c) => c.id !== cat.id).map((c) => ({ value: c.id, label: c.name })), { value: UNCATEGORIZED, label: "No tab (they stay under All quizzes)" }];
@@ -343,10 +364,18 @@ export class QuizAdmin {
 
   fillGradeFilter() {
     const sel = this.$("grade");
-    const grades = [...new Set([...teacher.settings.grades, ...[...teacher.quizzes.values()].map((q) => q.grade).filter(Boolean)])];
+    const grades = [...new Set([...myGrades(teacher.settings), ...this.myQuizzes().map((q) => q.grade).filter(Boolean)])];
     sel.innerHTML = '<option value="">All grades</option>' + grades.map((g) => `<option value="${escapeHtml(g)}">Grade ${escapeHtml(g)}</option>`).join("");
     sel.value = grades.includes(this.filters.grade) ? this.filters.grade : "";
     this.filters.grade = sel.value;
+    const own = this.$("owner");
+    if (own) {
+      const owners = [...new Map(this.myQuizzes().map((q) => [q.ownerRole === "teacher" ? q.ownerId : "__admin", ownerLabel(q).replace(" (older quiz)", "")])).entries()]
+        .sort((a, b) => (a[0] === "__admin" ? -1 : b[0] === "__admin" ? 1 : a[1].localeCompare(b[1])));
+      own.innerHTML = '<option value="">Everyone</option>' + owners.map(([id, name]) => `<option value="${escapeHtml(id)}">${escapeHtml(name)}</option>`).join("");
+      own.value = owners.some(([id]) => id === this.filters.owner) ? this.filters.owner : "";
+      this.filters.owner = own.value;
+    }
   }
 
   statusMatches(q) {
@@ -362,13 +391,14 @@ export class QuizAdmin {
   /** Tab + filters + search, then sorted: the complete list the table shows. */
   visibleQuizzes() {
     const term = this.filters.search.trim().toLowerCase();
-    const list = [...teacher.quizzes.values()]
+    const list = this.myQuizzes()
       .filter((q) => this.tab === ALL || categoryOf(q, teacher.categories) === this.tab)
       .filter((q) => this.statusMatches(q))
       .filter((q) => !this.filters.grade || String(q.grade) === this.filters.grade)
+      .filter((q) => !this.filters.owner || (this.filters.owner === "__admin" ? q.ownerRole !== "teacher" : q.ownerId === this.filters.owner))
       .filter((q) => !term || String(q.title).toLowerCase().includes(term) || q.id.toLowerCase().includes(term));
     return sortRows(list, this.sort, {
-      value: (q, k) => QUIZ_VALUE[k](q),
+      value: (q, k) => (k === "attempts" ? (this.attemptCounts.has(q.id) ? this.attemptCounts.get(q.id) : null) : QUIZ_VALUE[k](q)),
       tieBreak: (a, b) => String(a.title).localeCompare(String(b.title), undefined, { numeric: true })
     });
   }
@@ -380,24 +410,45 @@ export class QuizAdmin {
     const list = this.visibleQuizzes();
     this.qpage = clampPage(this.qpage, list.length);
     const shown = pageSlice(list, this.qpage);
-    const archivedCount = [...teacher.quizzes.values()].filter((q) => q.archived && (this.tab === ALL || categoryOf(q, teacher.categories) === this.tab)).length;
+    const archivedCount = this.myQuizzes().filter((q) => q.archived && (this.tab === ALL || categoryOf(q, teacher.categories) === this.tab)).length;
     const hiddenArchived = archivedCount && !["archived", "all"].includes(this.filters.status);
     this.$("count").textContent = `${pluralize(list.length, "quiz", "quizzes")}${hiddenArchived ? ` · ${archivedCount} archived hidden` : ""}`;
     paintSortHeaders(this.el.querySelector(".quiz-table"), this.sort);
     let empty = "";
     if (!list.length) {
-      const anyHere = [...teacher.quizzes.values()].some((q) => this.tab === ALL || categoryOf(q, teacher.categories) === this.tab);
-      empty = !teacher.quizzes.size ? "No quizzes yet. Add a question bank file above."
+      const anyHere = this.myQuizzes().some((q) => this.tab === ALL || categoryOf(q, teacher.categories) === this.tab);
+      empty = !this.myQuizzes().length ? "No quizzes yet. Add a question bank file above."
         : !anyHere ? (this.tab === ALL ? "No quizzes yet." : "No quizzes in this tab yet.")
           : "No quizzes match these filters.";
     }
-    this.$("list").innerHTML = shown.length ? shown.map((q) => this.quizRow(q)).join("") : `<tr><td colspan="9" class="empty">${escapeHtml(empty)}</td></tr>`;
+    this.$("list").innerHTML = shown.length ? shown.map((q) => this.quizRow(q)).join("") : `<tr><td colspan="${isAdmin() ? 11 : 10}" class="empty">${escapeHtml(empty)}</td></tr>`;
+    this.loadAttemptCounts(shown);
     this.$("pager").innerHTML = pagerHtml({ page: this.qpage, total: list.length, label: "quizzes" });
     const all = this.$("select-all");
     const selShown = list.filter((q) => this.selected.has(q.id)).length;
     all.checked = !!list.length && selShown === list.length;
     all.indeterminate = selShown > 0 && selShown < list.length;
     this.renderSelection();
+  }
+
+  /** Counts attempts for the quizzes on screen (1 small count query each; cached). */
+  async loadAttemptCounts(quizzes) {
+    const todo = quizzes.filter((q) => !this.attemptCounts.has(q.id) && !this.counting?.has(q.id));
+    if (!todo.length) return;
+    this.counting = this.counting || new Set();
+    todo.forEach((q) => this.counting.add(q.id));
+    await Promise.all(todo.map(async (q) => {
+      try {
+        const n = await countAttempts("active", { quizId: q.id });
+        this.attemptCounts.set(q.id, n);
+        const cell = this.$("list").querySelector(`[data-attempts="${CSS.escape(q.id)}"]`);
+        if (cell) cell.textContent = String(n);
+      } catch (err) {
+        console.warn("Attempt count unavailable", q.id, err);
+      } finally {
+        this.counting.delete(q.id);
+      }
+    }));
   }
 
   renderSelection() {
@@ -424,10 +475,12 @@ export class QuizAdmin {
           <div class="quiz-title">${escapeHtml(q.title)}${q.merged ? ` ${kind}` : ""}</div>
           <div class="small muted quiz-sub"><code>${id}</code>${q.merged ? ` · ${lessons.map((l) => escapeHtml(l.title)).join(" · ")}` : ""}</div>
         </td>
-        <td class="nowrap">${gradeLabel(q.grade)}</td>
+        <td class="nowrap">${gradeLabel(q.grade)}<div class="small muted">${sectionsLabel(q)}</div></td>
         <td class="nowrap">${cat ? escapeHtml(categoryName(cat, teacher.categories)) : '<span class="muted">—</span>'}</td>
+        ${isAdmin() ? `<td class="nowrap small">${escapeHtml(ownerLabel(q))}</td>` : ""}
         <td class="num">${q.questionCount ?? "—"}</td>
         <td class="num">${q.totalMarks ?? "—"}</td>
+        <td class="num" data-attempts="${id}">${this.attemptCounts.has(q.id) ? this.attemptCounts.get(q.id) : '<span class="muted">…</span>'}</td>
         <td>${status}</td>
         <td class="small nowrap" title="${created ? escapeHtml(formatDateTime(created)) : ""}">${created ? escapeHtml(formatDate(created)) : "—"}</td>
         <td class="actions-cell">
@@ -454,14 +507,19 @@ export class QuizAdmin {
     if (!quiz) return;
     const act = btn.dataset.act;
     try {
-      if (act === "toggle") await this.setStatus(quiz, { active: !quiz.active }, `"${quiz.title}" is now ${quiz.active ? "closed" : "open for students"}.`);
+      if (!ownsQuiz(quiz)) { appNotice("You can only change your own quizzes.", "error"); return; }
+      if (act === "toggle") {
+        if (!quiz.active && !classesOk(quiz)) { appNotice("This quiz is for a grade or section you are not assigned to, so it cannot be opened. Edit its grade and sections first, or contact the Admin.", "error"); return; }
+        await this.setStatus(quiz, { active: !quiz.active }, `"${quiz.title}" is now ${quiz.active ? "closed" : "open for students"}.`);
+        logActivity(quiz.active ? "quiz_opened" : "quiz_closed", `${quiz.active ? "Opened" : "Closed"} quiz "${quiz.title}"`, quiz.id);
+      }
       else if (act === "archive") {
         const ok = await confirmDialog({
           title: `Archive "${quiz.title}"?`,
           text: "It is hidden from students. You can unarchive it later.",
           okText: "Archive quiz"
         });
-        if (ok) await this.setStatus(quiz, { archived: true, active: false }, `"${quiz.title}" was archived. Choose Status: Archived to see it.`);
+        if (ok) { await this.setStatus(quiz, { archived: true, active: false }, `"${quiz.title}" was archived. Choose Status: Archived to see it.`); logActivity("quiz_archived", `Archived quiz "${quiz.title}"`, quiz.id); }
       } else if (act === "unarchive") await this.setStatus(quiz, { archived: false }, `"${quiz.title}" was unarchived. It is closed; press Open when students should see it.`);
       else if (act === "edit") await this.editQuiz(quiz);
       else if (act === "move") await this.moveDialog([quiz.id]);
@@ -483,12 +541,12 @@ export class QuizAdmin {
   }
 
   async editQuiz(quiz) {
-    const grades = [...new Set([...teacher.settings.grades, ...(quiz.grade ? [quiz.grade] : [])])];
+    const grades = [...new Set([...myGrades(teacher.settings), ...(quiz.grade ? [quiz.grade] : [])])];
     const values = await editDialog(quiz, grades, teacher.settings.passPercent);
     if (!values) return;
     const passChanged = (values.passPercent ?? null) !== (quiz.passPercent ?? null);
-    const gradeChanged = values.grade !== (quiz.grade || "");
-    const meta = { title: values.title, grade: values.grade, description: values.description, passPercent: values.passPercent, updatedAt: serverTimestamp() };
+    const gradeChanged = values.grade !== (quiz.grade || "") || values.sections.join() !== (quiz.sections || []).join();
+    const meta = { title: values.title, grade: values.grade, sections: values.sections, description: values.description, passPercent: values.passPercent, updatedAt: serverTimestamp() };
     const keyChanges = { title: values.title, passPercent: values.passPercent };
     // A new pass mark changes results, so give the answer key a new version
     // stamp: existing results then show "Needs regrading".
@@ -506,7 +564,7 @@ export class QuizAdmin {
     Object.assign(quiz, meta, { updatedAt: new Date() });
     this.renderList();
     const notes = [];
-    if (gradeChanged) notes.push("Students of other grades will no longer see it.");
+    if (gradeChanged) notes.push("Only students of the chosen grade and sections see it.");
     if (passChanged) notes.push("Existing results now show Needs regrading so the new pass mark can be applied.");
     appNotice(`Saved "${values.title}". ${notes.join(" ")}`.trim(), "success");
     await reloadQuizzes();
@@ -524,6 +582,7 @@ export class QuizAdmin {
     const batch = writeBatch(db);
     ["quizzes", "quizContent", "answerKeys"].forEach((c) => batch.delete(doc(db, c, quiz.id)));
     await batch.commit();
+    logActivity("quiz_deleted", `Deleted quiz "${quiz.title}"`, quiz.id);
     clearKeyCache();
     this.$("key").innerHTML = "";
     await reloadQuizzes();
@@ -570,16 +629,17 @@ export class QuizAdmin {
 
   async readFiles(files) {
     if (!files.length) { this.resetImport(); return; }
-    const imp = { lessons: [], errors: [], warnings: [], mode: "separate", mergeTitle: "", onCollision: "keep", open: false, categoryId: null };
+    const imp = { lessons: [], errors: [], warnings: [], mode: "separate", mergeTitle: "", onCollision: "keep", open: false, categoryId: null, sections: {} };
     for (const file of files) {
       let text;
       try { text = await file.text(); } catch { imp.errors.push(`${file.name} could not be read.`); continue; }
       const parsed = parseQuestionBank(text, file.name);
       imp.errors.push(...parsed.errors);
       imp.warnings.push(...parsed.warnings);
+      const grades = myGrades(teacher.settings);
       parsed.lessons.forEach((l) => {
-        const gradeOk = teacher.settings.grades.includes(l.grade);
-        imp.lessons.push({ ...l, include: true, chosenGrade: gradeOk ? l.grade : (teacher.settings.grades.length === 1 && !l.grade ? teacher.settings.grades[0] : "") });
+        const gradeOk = grades.includes(l.grade);
+        imp.lessons.push({ ...l, include: true, chosenGrade: gradeOk ? l.grade : (grades.length === 1 ? grades[0] : "") });
       });
     }
     this.imp = imp;
@@ -588,7 +648,7 @@ export class QuizAdmin {
 
   renderImport() {
     const imp = this.imp;
-    const grades = teacher.settings.grades;
+    const grades = myGrades(teacher.settings);
     // New quizzes go to the selected tab unless the teacher picks another one here.
     if (!imp.tabTouched || (imp.categoryId && !this.tabExists(imp.categoryId))) imp.categoryId = this.tab === ALL ? UNCATEGORIZED : this.tab;
     let html = "";
@@ -617,7 +677,7 @@ export class QuizAdmin {
                 <option value="">Choose…</option>
                 ${grades.map((g) => `<option value="${escapeHtml(g)}" ${g === l.chosenGrade ? "selected" : ""}>Grade ${escapeHtml(g)}</option>`).join("")}
               </select>
-              ${badGrade ? `<div class="small error-text">The file says grade "${escapeHtml(l.grade)}", which is not in School settings.</div>` : ""}
+              ${badGrade ? `<div class="small error-text">The file says grade "${escapeHtml(l.grade)}", which is ${isAdmin() ? "not in School settings" : "not one of your grades"}.</div>` : ""}
               ${!l.grade ? '<div class="small muted">No grade in the file.</div>' : ""}
             </td>
           </tr>`;
@@ -637,7 +697,10 @@ export class QuizAdmin {
         <input type="text" id="impTitle" data-imp="title" maxlength="120" value="${escapeHtml(imp.mergeTitle)}" placeholder="e.g. Science revision: lessons 1 to 3">
       </div>
 
-      <h4>3. Options</h4>
+      <h4>3. Who takes the quiz</h4>
+      <div data-imp="sections"></div>
+
+      <h4>4. Options</h4>
       <div class="field">
         <label for="impTab">Add the new quizzes to this tab</label>
         <select id="impTab" data-imp="tab">
@@ -654,10 +717,32 @@ export class QuizAdmin {
       </div>
       <label class="check"><input type="checkbox" data-imp="open" ${imp.open ? "checked" : ""}> Open the new quizzes for students now</label>
 
-      <h4>4. Check and add</h4>
+      <h4>5. Check and add</h4>
       <div data-imp="plan"></div>`;
     this.$("preview").innerHTML = html;
+    this.renderSections();
     this.renderPlan();
+  }
+
+  /** Section choice for each grade used by the ticked lessons. */
+  renderSections() {
+    const box = this.$("preview").querySelector('[data-imp="sections"]');
+    if (!box) return;
+    const imp = this.imp;
+    const used = [...new Set(imp.lessons.filter((l) => l.include && l.chosenGrade).map((l) => l.chosenGrade))];
+    if (!used.length) { box.innerHTML = '<p class="small muted">Choose a grade for the lessons first.</p>'; return; }
+    box.innerHTML = used.map((g) => {
+      const secs = mySections(teacher.settings, g);
+      if (!(g in imp.sections)) imp.sections[g] = isAdmin() ? [] : secs.slice();
+      const chosen = imp.sections[g];
+      const all = isAdmin() && !chosen.length;
+      return `<div class="class-row">
+        <span class="class-grade">Grade ${escapeHtml(g)}</span>
+        <div class="class-secs">
+          ${isAdmin() ? `<label class="chip-check"><input type="checkbox" data-imp="sec-all" data-g="${escapeHtml(g)}"${all ? " checked" : ""}><span>All sections</span></label>` : ""}
+          ${secs.map((x) => `<label class="chip-check"><input type="checkbox" data-imp="sec" data-g="${escapeHtml(g)}" value="${escapeHtml(x)}"${chosen.includes(x) ? " checked" : ""}><span>${escapeHtml(x)}</span></label>`).join("")}
+        </div></div>`;
+    }).join("") + `<p class="small muted">${isAdmin() ? "Only students of the ticked sections see the quiz. All sections: every section of the grade." : "You can choose only the sections assigned to you."}</p>`;
   }
 
   onImportChange(e) {
@@ -667,8 +752,17 @@ export class QuizAdmin {
     const i = Number(t.dataset.i);
     switch (t.dataset.imp) {
       case "all": imp.lessons.forEach((l) => { l.include = t.checked; }); this.renderImport(); return;
-      case "inc": imp.lessons[i].include = t.checked; break;
-      case "grade": imp.lessons[i].chosenGrade = t.value; break;
+      case "inc": imp.lessons[i].include = t.checked; this.renderSections(); break;
+      case "grade": imp.lessons[i].chosenGrade = t.value; this.renderSections(); break;
+      case "sec": {
+        const g = t.dataset.g;
+        const set = new Set(imp.sections[g] || []);
+        if (t.checked) set.add(t.value); else set.delete(t.value);
+        imp.sections[g] = mySections(teacher.settings, g).filter((x) => set.has(x));
+        this.renderSections();
+        break;
+      }
+      case "sec-all": imp.sections[t.dataset.g] = []; this.renderSections(); break;
       case "mode":
         imp.mode = t.value;
         this.$("preview").querySelector(".merge-title").hidden = imp.mode !== "merge";
@@ -689,6 +783,10 @@ export class QuizAdmin {
     const included = imp.lessons.filter((l) => l.include);
     if (!included.length) problems.push("Tick at least one lesson.");
     included.filter((l) => !l.chosenGrade).forEach((l) => problems.push(`Choose a grade for "${l.title}".`));
+    if (!isAdmin()) {
+      [...new Set(included.map((l) => l.chosenGrade).filter(Boolean))]
+        .filter((g) => !(imp.sections[g] || []).length).forEach((g) => problems.push(`Tick at least one section of Grade ${g}.`));
+    }
     let built = [];
     if (!problems.length) {
       if (imp.mode === "merge") {
@@ -715,7 +813,7 @@ export class QuizAdmin {
       const existing = teacher.quizzes.get(base);
       let id = base;
       let action = "new";
-      if (existing && imp.onCollision === "replace" && !used.has(base)) {
+      if (existing && imp.onCollision === "replace" && !used.has(base) && ownsQuiz(existing)) {
         action = "replace";
       } else if (existing || used.has(base)) {
         let n = 2;
@@ -724,7 +822,7 @@ export class QuizAdmin {
         action = "copy";
       }
       used.add(id);
-      return { quiz: { ...quiz, quizId: id }, id, base, existing, action };
+      return { quiz: { ...quiz, quizId: id, sections: (imp.sections[quiz.grade] || []).slice() }, id, base, existing, action };
     });
     return { quizzes, problems, warnings };
   }
@@ -745,11 +843,11 @@ export class QuizAdmin {
       html += `
         <div class="table-wrap">
         <table class="data-table compact">
-          <thead><tr><th>Quiz</th><th>ID</th><th>Grade</th><th class="num">Questions</th><th class="num">Marks</th><th>What happens</th></tr></thead>
+          <thead><tr><th>Quiz</th><th>ID</th><th>Grade and sections</th><th class="num">Questions</th><th class="num">Marks</th><th>What happens</th></tr></thead>
           <tbody>${quizzes.map((p) => `<tr>
             <td>${escapeHtml(p.quiz.title)}${p.quiz.merged ? `<div class="small muted">Merged: ${p.quiz.lessons.map((l) => escapeHtml(l.title)).join(" + ")}</div>` : ""}</td>
             <td class="small"><code>${escapeHtml(p.id)}</code></td>
-            <td class="nowrap">${gradeLabel(p.quiz.grade)}</td>
+            <td class="nowrap">${gradeLabel(p.quiz.grade)}<div class="small muted">${sectionsLabel(p.quiz)}</div></td>
             <td class="num">${p.quiz.questions.length}</td>
             <td class="num">${p.quiz.questions.reduce((s, q) => s + q.marks, 0)}</td>
             <td>${actionText(p)}</td></tr>`).join("")}</tbody>
@@ -793,8 +891,15 @@ export class QuizAdmin {
         const batch = writeBatch(db);
         chunk.forEach(({ quiz, id, existing, action }) => {
           const replacing = action === "replace";
+          // Ownership: new quizzes belong to whoever adds them; a replaced quiz keeps its owner.
+          const owner = replacing && existing.ownerId
+            ? { ownerId: existing.ownerId, ownerRole: existing.ownerRole || "admin", ownerName: existing.ownerName || "" }
+            : { ownerId: session.teacherId, ownerRole: isAdmin() ? "admin" : "teacher", ownerName: session.name || (isAdmin() ? "Admin" : session.username) };
           batch.set(doc(db, "quizzes", id), {
             ...toQuizMeta(quiz),
+            ...owner,
+            sections: quiz.sections || [],
+            createdBy: replacing ? (existing.createdBy || owner.ownerName) : owner.ownerName,
             passPercent: quiz.passPercent ?? null,
             active: this.imp.open || (replacing && !!existing.active),
             archived: false,
@@ -813,6 +918,7 @@ export class QuizAdmin {
       }
       clearKeyCache();
       const names = quizzes.map((p) => p.quiz.title);
+      logActivity("quiz_created", `Added ${pluralize(saved, "quiz", "quizzes")}: ${names.join(", ")}`.slice(0, 300), quizzes.map((p) => p.id).join(",").slice(0, 200));
       const opened = this.imp.open;
       const tabName = this.imp.categoryId ? categoryName(this.imp.categoryId, teacher.categories) : "none (under All quizzes)";
       this.resetImport();
@@ -829,6 +935,14 @@ export class QuizAdmin {
 }
 
 /** Modal form for a quiz's details. Resolves with the new values or null. */
+/** The quiz's grade and sections are allowed for the user (teachers: their classes). */
+function classesOk(q) {
+  if (isAdmin()) return true;
+  const mine = session.classes[String(q.grade || "")] || [];
+  const secs = Array.isArray(q.sections) ? q.sections : [];
+  return !!mine.length && !!secs.length && secs.every((s) => mine.includes(s));
+}
+
 function editDialog(quiz, grades, defaultPass) {
   const backdrop = document.createElement("div");
   backdrop.className = "modal-backdrop";
@@ -839,6 +953,7 @@ function editDialog(quiz, grades, defaultPass) {
       <div class="field"><label for="eqGrade">Grade</label>
         <select id="eqGrade">${grades.map((g) => `<option value="${escapeHtml(g)}">Grade ${escapeHtml(g)}</option>`).join("")}${quiz.grade ? "" : '<option value="">Any grade (older quiz)</option>'}</select>
         <p class="small muted">Only students of this grade see the quiz.</p></div>
+      <div class="field"><span class="label">Sections</span><div class="class-secs" id="eqSecs"></div></div>
       <div class="field"><label for="eqDesc">Information for students (optional)</label><textarea id="eqDesc" rows="3" maxlength="500"></textarea></div>
       <div class="field"><label for="eqPass">Pass mark % (leave empty for the school default, ${escapeHtml(defaultPass)}%)</label><input type="number" id="eqPass" min="1" max="100"></div>
       <p class="small muted">To change questions, upload the file again and choose Replace.</p>
@@ -849,6 +964,22 @@ function editDialog(quiz, grades, defaultPass) {
   const q = (s) => backdrop.querySelector(s);
   q("#eqName").value = quiz.title || "";
   q("#eqGrade").value = quiz.grade || "";
+  let chosenSecs = Array.isArray(quiz.sections) ? quiz.sections.slice() : [];
+  const renderSecs = () => {
+    const g = q("#eqGrade").value;
+    const secs = g ? mySections(teacher.settings, g) : [];
+    const all = isAdmin() && !chosenSecs.length;
+    q("#eqSecs").innerHTML = !g ? '<span class="small muted">Every grade and section (older quiz).</span>'
+      : (isAdmin() ? `<label class="chip-check"><input type="checkbox" data-all${all ? " checked" : ""}><span>All sections</span></label>` : "")
+        + secs.map((x) => `<label class="chip-check"><input type="checkbox" value="${escapeHtml(x)}"${chosenSecs.includes(x) ? " checked" : ""}><span>${escapeHtml(x)}</span></label>`).join("");
+  };
+  renderSecs();
+  q("#eqGrade").addEventListener("change", () => { chosenSecs = isAdmin() ? [] : mySections(teacher.settings, q("#eqGrade").value).slice(); renderSecs(); });
+  q("#eqSecs").addEventListener("change", (e) => {
+    if (e.target.matches("[data-all]")) chosenSecs = [];
+    else chosenSecs = [...q("#eqSecs").querySelectorAll("input[value]:checked")].map((b) => b.value);
+    renderSecs();
+  });
   q("#eqDesc").value = quiz.description || "";
   q("#eqPass").value = quiz.passPercent ?? "";
   document.body.appendChild(backdrop);
@@ -865,7 +996,10 @@ function editDialog(quiz, grades, defaultPass) {
       const pass = passRaw === "" ? null : Number(passRaw);
       if (!title) { q("[data-err]").textContent = "Enter a title."; return; }
       if (pass !== null && !(pass >= 1 && pass <= 100)) { q("[data-err]").textContent = "The pass mark must be between 1 and 100."; return; }
-      done({ title, grade: q("#eqGrade").value, description: q("#eqDesc").value.trim(), passPercent: pass });
+      const grade = q("#eqGrade").value;
+      const sections = grade ? chosenSecs.filter((x) => mySections(teacher.settings, grade).includes(x)) : [];
+      if (!isAdmin() && (!grade || !sections.length)) { q("[data-err]").textContent = "Choose a grade and at least one of your sections."; return; }
+      done({ title, grade, sections, description: q("#eqDesc").value.trim(), passPercent: pass });
     });
   });
 }

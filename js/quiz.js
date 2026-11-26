@@ -10,6 +10,7 @@ import {
   ACTIVE_KEY, PENDING_KEY, progressKey, toDate
 } from "./utilities.js";
 import { SHORT_ANSWER_MAX_LENGTH } from "./questionBank.js";
+import { lookupStudent } from "./students.js";
 
 const SAVE_INTERVAL_MS = 30000; // at most one progress write every 30 s per student
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -281,6 +282,21 @@ async function startNewAttempt(pending) {
   if (rollCheck.error) {
     storage.remove(PENDING_KEY);
     showError(`${rollCheck.error} Go back to the start page and correct your details, or ask your teacher.`, false);
+    return;
+  }
+  if (Array.isArray(quiz.sections) && quiz.sections.length && !quiz.sections.includes(String(student.section))) {
+    storage.remove(PENDING_KEY);
+    showError(`This quiz is for Section ${quiz.sections.join(", ")} only.`, false);
+    return;
+  }
+  // Use the registered name and id (the Admin may have corrected the name).
+  const reg = await lookupStudent(student.grade, student.section, student.roll);
+  if (reg.state === "found" && (!student.studentId || student.studentId === reg.student.id)) {
+    student.studentId = reg.student.id;
+    student.name = reg.student.name;
+  } else if (reg.state !== "new" || student.studentId) {
+    storage.remove(PENDING_KEY);
+    showError("Your student record has changed. Go back to the start page and check your details, or ask your teacher.", false);
     return;
   }
   const attemptId = makeAttemptId(quizId, student.grade, student.section, student.roll);

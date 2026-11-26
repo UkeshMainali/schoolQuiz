@@ -450,3 +450,86 @@ td .cselect .cselect-button { min-height: var(--control-sm); font-size: 0.85rem;
   .pager { justify-content: center; padding: 12px; }
   .pager .pager-num:not(.current) { display: none; }
 }
+
+/* ---------------------------------------------------------------- Roles upgrade (dashboard) */
+
+/* Sidebar: account box and requests badge */
+.side-who { display: grid; min-width: 0; }
+.side-role { font-size: 0.75rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.side-user .side-menu { grid-column: 2; justify-self: start; }
+.side-menu .menu-list { left: 0; right: auto; top: auto; bottom: calc(100% + 6px); min-width: 200px; }
+.nav-badge {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--radius-pill);
+  background: var(--danger); color: #fff; font-size: 0.72rem; font-weight: 700; line-height: 20px; text-align: center;
+}
+@media (max-width: 960px) {
+  .side-who { display: none; }
+  .side-menu .menu-list { top: calc(100% + 6px); bottom: auto; left: auto; right: 0; }
+}
+
+/* Filters inside a card head */
+.inline-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.inline-filters select, .inline-filters input[type="search"] { min-height: var(--control-sm, 32px); }
+
+/* Left / right buttons above wide tables */
+.hscroll-bar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; margin: 0 0 6px; }
+.hscroll-bar[hidden] { display: none; }
+.hscroll-hint { margin-right: 4px; }
+.btn-icon { width: 32px; padding: 0; justify-content: center; }
+.hscroll-btn:disabled { opacity: 0.4; cursor: default; }
+.card .hscroll-bar { padding: 0 2px; }
+
+/* Shortcut "G then …" hint */
+.shortcut-hint {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 90;
+  padding: 8px 14px; border-radius: var(--radius-pill); background: var(--text); color: var(--surface);
+  font-size: 0.85rem; box-shadow: var(--shadow-pop); pointer-events: none;
+}
+.shortcut-hint[hidden] { display: none; }
+
+/* Overview */
+.overview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.overview-head p { margin: 0; }
+.overview-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.stat-link { font: inherit; text-align: left; cursor: pointer; color: inherit; transition: border-color var(--t-fast, 0.12s), box-shadow var(--t-fast, 0.12s); }
+.stat-link:hover { border-color: var(--primary-line); box-shadow: var(--shadow); }
+.stat-link:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); }
+.summary-sub { margin-top: 2px; font-size: 0.8rem; color: var(--muted); }
+.overview-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 16px; }
+.overview-cols > .card { margin: 0; }
+.activity-list { list-style: none; margin: 0; padding: 0 16px 8px; display: grid; }
+.activity-list li { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 0.9rem; }
+.activity-list li:first-child { border-top: none; }
+@media (max-width: 640px) { .activity-list li { grid-template-columns: 1fr; gap: 2px; } }
+
+/* Student record setup banner and request dialog */
+.setup-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.request-about { margin: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--neutral-soft); font-size: 0.9rem; }
+
+/* Help */
+.help-intro h2, .help-card h2 { margin-top: 0; }
+.help-toc { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.help-toc a {
+  padding: 5px 12px; border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: 0.85rem;
+  color: var(--text-2); text-decoration: none; background: var(--surface);
+}
+.help-toc a:hover { border-color: var(--primary-line); color: var(--primary); background: var(--primary-soft); }
+.help-card { scroll-margin-top: 16px; }
+.help-item { border-top: 1px solid var(--border); }
+.help-item:first-of-type { border-top: none; }
+.help-item > summary {
+  cursor: pointer; list-style: none; padding: 12px 28px 12px 0; font-weight: 600; position: relative;
+}
+.help-item > summary::-webkit-details-marker { display: none; }
+.help-item > summary::after {
+  content: ""; position: absolute; right: 4px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+  background: currentColor; opacity: 0.55; -webkit-mask: var(--i-caret) center / contain no-repeat; mask: var(--i-caret) center / contain no-repeat;
+  transition: transform var(--t-fast, 0.12s);
+}
+.help-item[open] > summary::after { transform: rotate(180deg); }
+.help-item > summary:hover { color: var(--primary); }
+.help-item > summary:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--ring); border-radius: var(--radius-xs); }
+.help-body { padding: 0 0 14px; color: var(--text-2); font-size: 0.92rem; line-height: 1.6; }
+.help-body ul, .help-body ol { margin: 4px 0; padding-left: 20px; }
+.help-body li + li { margin-top: 4px; }
+.shortcut-table td:first-child { width: 160px; }

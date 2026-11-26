@@ -1,129 +1,422 @@
 rules_version = '2';
 
-// Firestore Security Rules for the Classroom Quiz website.
+// Firestore Security Rules for the Exam Evaluation System (EES).
 //
-// Collections
-//   teachers/{uid}        authorised teacher accounts (created by hand in the console)
-//   settings/school       grades, sections, pass mark, students per section (= highest roll number)
-//   settings/quizCategories  the teacher's quiz tabs (names only)
-//   quizzes/{quizId}      quiz list document (title, grade, counts, open/closed), NO answers.
-//                         Quizzes created before v2 also hold their questions here.
-//   quizContent/{quizId}  questions + options of a quiz, NO correct answers
-//   answerKeys/{quizId}   correct answers (teacher only)
-//   attempts/{attemptId}  one per student per quiz; written by the student
-//   results/{attemptId}   marks calculated by the teacher dashboard (teacher only)
-//   archivedAttempts/{id}, archivedResults/{id}   archived records (teacher only)
+// Roles (v3, admin + teachers)
+//   teachers/{authUid}    staff accounts. role "admin" or "teacher", teacherId (stable id that
+//                         survives a password reset), name, username, classes
+//                         { "6": ["A","B"], "7": ["A"] }, status "active" | "disabled".
+//                         Only the Admin can create or change teacher documents. The very
+//                         first Admin is the account that already had a (role-less)
+//                         teachers document before this upgrade: it claims the role once,
+//                         guarded by system/admin, and nobody can claim it afterwards.
+//   system/admin          { uid } of the Admin account (written once, never changed here)
+//   usernames/{username}  { email, teacherId, uid } so teachers can sign in with a username
 //
-// Students sign in anonymously. The teacher signs in with email/password and
-// must have a document at teachers/{their uid}.
+// Data
+//   settings/school         grades, sections, pass mark, class sizes (Admin writes)
+//   settings/quizCategories the Admin's quiz tabs
+//   teacherSettings/{teacherId}  a teacher's own quiz tabs
+//   quizzes/{quizId}        quiz list document (no answers). ownerId, ownerRole, grade, sections
+//   quizContent/{quizId}    questions without answers
+//   answerKeys/{quizId}     correct answers
+//   students/{studentId}    one per student: name, grade, section, rollNo (stable id)
+//   studentIndex/{grade_section_roll}  { studentId, name } lookup used by the student page
+//   attempts/{attemptId}    one per student per quiz; written by the student; studentId
+//   results/{attemptId}     marks calculated in the dashboard
+//   archivedAttempts/{id}, archivedResults/{id}   archive (Admin only)
+//   retakes/{attemptId}     marker written when a retake moves an attempt (see below)
+//   requests/{id}           teacher requests for Admin-only operations
+//   activity/{id}           activity log (Admin reads; nobody edits or deletes)
+//
+// Students sign in anonymously. Staff sign in with email/password.
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn() {
-      return request.auth != null;
+    // ------------------------------------------------------------- identity
+    function signedIn() { return request.auth != null; }
+    function docPath(col, id) { return /databases/$(database)/documents/$(col)/$(id); }
+    function staffPath() { return docPath('teachers', request.auth.uid); }
+    function hasStaffDoc() { return signedIn() && exists(staffPath()); }
+    function me() { return get(staffPath()).data; }
+    function activeStaff() { return me().get('status', 'active') == 'active'; }
+    function isAdmin() { return hasStaffDoc() && me().get('role', '') == 'admin' && activeStaff(); }
+    function isTeacher() { return hasStaffDoc() && me().get('role', '') == 'teacher' && activeStaff(); }
+    function isStaff() { return isAdmin() || isTeacher(); }
+    function myId() { return me().get('teacherId', request.auth.uid); }
+    function myClasses() { return me().get('classes', {}); }
+
+    // True when the signed-in teacher is assigned this grade and section.
+    function teaches(g, s) {
+      return isTeacher() && g is string && s is string
+        && myClasses().keys().hasAny([g])
+        && myClasses().get(g, []).hasAny([s]);
     }
 
-    function isTeacher() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/teachers/$(request.auth.uid));
+    function validName(n) { return n is string && n.size() >= 2 && n.size() <= 80; }
+    function validClassName(v) { return v is string && v.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$'); }
+    function validRoll(v) { return v is string && v.matches('^[1-9][0-9]{0,5}$'); }
+    function validUsername(v) { return v is string && v.matches('^[a-z0-9][a-z0-9._-]{2,29}$'); }
+
+    // ------------------------------------------------------------- teachers
+    function validTeacher(d) {
+      return d.role == 'teacher'
+        && d.teacherId is string && d.teacherId.size() > 0
+        && validName(d.name)
+        && validUsername(d.username)
+        && d.classes is map
+        && d.status in ['active', 'disabled'];
     }
 
-    // ---------------------------------------------------------------- teachers
-    // A signed-in user may check whether they themselves are a teacher.
-    // Nobody can create teacher documents from the website.
+    // One-time: the account that had a teachers document before roles existed
+    // becomes the Admin, as long as no Admin has been set up yet.
+    function bootstrapAdmin(uid) {
+      return signedIn() && uid == request.auth.uid
+        && !('role' in resource.data)
+        && request.resource.data.role == 'admin'
+        && request.resource.data.teacherId == uid
+        && request.resource.data.get('status', 'active') == 'active'
+        && !exists(docPath('system', 'admin'))
+        && existsAfter(docPath('system', 'admin'))
+        && getAfter(docPath('system', 'admin')).data.uid == uid;
+    }
+
     match /teachers/{uid} {
-      allow get: if signedIn() && request.auth.uid == uid;
-      allow list, write: if false;
+      allow get: if (signedIn() && request.auth.uid == uid) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isAdmin() && uid != request.auth.uid && validTeacher(request.resource.data);
+      allow update: if (isAdmin() && resource.data.get('role', '') == 'teacher' && validTeacher(request.resource.data))
+        // the Admin may change only their own display name
+        || (isAdmin() && uid == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedAt'])
+            && validName(request.resource.data.name))
+        || bootstrapAdmin(uid);
+      allow delete: if isAdmin() && resource.data.get('role', '') == 'teacher';
     }
 
-    // ---------------------------------------------------------------- settings
+    match /system/admin {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && exists(staffPath())
+        && !('role' in get(staffPath()).data)
+        && getAfter(staffPath()).data.role == 'admin';
+      allow update, delete: if false;
+    }
+
+    // Read before signing in, so a teacher can type a username instead of an email.
+    match /usernames/{name} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && validUsername(name)
+        && request.resource.data.keys().hasOnly(['email', 'teacherId', 'uid'])
+        && request.resource.data.email is string && request.resource.data.teacherId is string;
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------- settings
     match /settings/{docId} {
       allow read: if signedIn();
-      allow write: if isTeacher();
+      allow write: if isAdmin();
     }
 
-    // ----------------------------------------------------------------- quizzes
-    // Students may only read quizzes the teacher has made available.
-    // Student list queries must include where("active", "==", true).
+    match /teacherSettings/{teacherId} {
+      allow read: if isAdmin() || (isTeacher() && myId() == teacherId);
+      allow write: if isStaff() && myId() == teacherId;
+    }
+
+    // -------------------------------------------------------------- quizzes
+    // Quiz list documents hold no questions or answers. Staff may read them
+    // all (titles are needed for results); students only see open quizzes.
+    // A teacher may only create and change their own quizzes, and only for
+    // grades and sections the Admin assigned to them.
+    function teacherClassesOk(d) {
+      return d.grade is string && myClasses().keys().hasAny([d.grade])
+        && d.sections is list && d.sections.size() > 0
+        && myClasses().get(d.grade, []).hasAll(d.sections);
+    }
+    function quizForMyClasses(q) {
+      let g = q.get('grade', '');
+      let secs = q.get('sections', []);
+      return g == '' || (myClasses().keys().hasAny([g])
+        && (secs.size() == 0 || myClasses().get(g, []).hasAny(secs)));
+    }
+    function canSeeQuiz(q) {
+      return isAdmin() || (isTeacher() && (q.get('ownerId', '') == myId() || quizForMyClasses(q)));
+    }
+    function canSeeQuizId(id) {
+      return isAdmin() || (isTeacher() && exists(docPath('quizzes', id)) && canSeeQuiz(get(docPath('quizzes', id)).data));
+    }
+    function ownsQuizId(id) {
+      return (exists(docPath('quizzes', id)) && get(docPath('quizzes', id)).data.get('ownerId', '') == myId())
+        || (existsAfter(docPath('quizzes', id)) && getAfter(docPath('quizzes', id)).data.get('ownerId', '') == myId());
+    }
+
     match /quizzes/{quizId} {
-      allow get: if isTeacher() || (signedIn() && resource.data.active == true);
-      allow list: if isTeacher() || (signedIn() && resource.data.active == true);
-      allow write: if isTeacher();
+      allow get, list: if isStaff() || (signedIn() && resource.data.active == true);
+      allow create: if isAdmin()
+        || (isTeacher()
+            && request.resource.data.ownerId == myId()
+            && request.resource.data.ownerRole == 'teacher'
+            && teacherClassesOk(request.resource.data));
+      allow update: if isAdmin()
+        || (isTeacher()
+            && resource.data.get('ownerId', '') == myId()
+            && request.resource.data.ownerId == myId()
+            && request.resource.data.ownerRole == 'teacher'
+            && (teacherClassesOk(request.resource.data)
+                // a quiz for a class the teacher no longer has may still be
+                // closed, renamed or moved between tabs, but never opened
+                || (request.resource.data.get('active', false) != true
+                    && request.resource.data.get('grade', '') == resource.data.get('grade', '')
+                    && request.resource.data.get('sections', []) == resource.data.get('sections', []))));
+      allow delete: if isAdmin() || (isTeacher() && resource.data.get('ownerId', '') == myId());
     }
 
-    // ------------------------------------------------------------- quizContent
-    // Questions without answers. Students may read them only while the quiz
-    // is open.
     match /quizContent/{quizId} {
-      allow get: if isTeacher()
-        || (signedIn() && get(/databases/$(database)/documents/quizzes/$(quizId)).data.active == true);
-      allow list: if isTeacher();
-      allow write: if isTeacher();
+      allow get: if canSeeQuizId(quizId)
+        || (signedIn() && get(docPath('quizzes', quizId)).data.active == true);
+      allow list: if isAdmin();
+      allow write: if isAdmin() || (isTeacher() && ownsQuizId(quizId));
     }
 
-    // -------------------------------------------------------------- answerKeys
     match /answerKeys/{quizId} {
-      allow read, write: if isTeacher();
+      allow get: if canSeeQuizId(quizId);
+      allow list: if isAdmin();
+      allow write: if isAdmin() || (isTeacher() && ownsQuizId(quizId));
     }
 
-    // ---------------------------------------------------------------- attempts
+    // ------------------------------------------------------------- students
+    function validStudent(d) {
+      return validName(d.name) && d.nameLower == d.name.lower()
+        && validClassName(d.grade) && validClassName(d.section) && validRoll(d.rollNo);
+    }
+    function indexKey(d) { return d.grade + '_' + d.section + '_' + d.rollNo; }
+    // The grade and section exist in School settings (no check before settings were saved).
+    function classExists(g, s) {
+      let p = docPath('settings', 'school');
+      return !exists(p) || (get(p).data.get('grades', [g]).hasAny([g])
+        && get(p).data.get('sectionsByGrade', {}).get(g, get(p).data.get('sections', [s])).hasAny([s]));
+    }
+    // A student registering themselves from the student page. The index
+    // document is created in the same batch, so the same grade + section +
+    // roll number can only ever be registered once.
+    function selfRegistration(sid) {
+      let d = request.resource.data;
+      return signedIn()
+        && d.keys().hasOnly(['name', 'nameLower', 'grade', 'section', 'rollNo', 'status', 'createdAt', 'createdBy', 'createdUid'])
+        && validStudent(d)
+        && d.status == 'active' && d.createdBy == 'student' && d.createdUid == request.auth.uid
+        && d.createdAt == request.time
+        && rollAllowed(d.grade, d.section, d.rollNo)
+        && classExists(d.grade, d.section)
+        && existsAfter(docPath('studentIndex', indexKey(d)))
+        && getAfter(docPath('studentIndex', indexKey(d))).data.studentId == sid;
+    }
+
+    match /students/{sid} {
+      allow get, list: if isAdmin() || teaches(resource.data.grade, resource.data.section);
+      allow create: if (isAdmin() && validStudent(request.resource.data)) || selfRegistration(sid);
+      allow update: if isAdmin() && validStudent(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    function validIndex(key) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['studentId', 'name', 'grade', 'section', 'rollNo'])
+        && key == indexKey(d)
+        && existsAfter(docPath('students', d.studentId))
+        && getAfter(docPath('students', d.studentId)).data.name == d.name
+        && getAfter(docPath('students', d.studentId)).data.grade == d.grade
+        && getAfter(docPath('students', d.studentId)).data.section == d.section
+        && getAfter(docPath('students', d.studentId)).data.rollNo == d.rollNo;
+    }
+
+    match /studentIndex/{key} {
+      // Any signed-in student may look up one roll number to fill in their name.
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create: if validIndex(key)
+        && (isAdmin()
+            || (signedIn()
+                && !exists(docPath('students', request.resource.data.studentId))
+                && getAfter(docPath('students', request.resource.data.studentId)).data.createdBy == 'student'
+                && getAfter(docPath('students', request.resource.data.studentId)).data.createdUid == request.auth.uid));
+      allow update: if isAdmin() && validIndex(key);
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------- attempts
+    function retakeMarks() { return ['previousAttempt', 'originalId', 'retakeAllowedAt', 'retakeAllowedBy']; }
+
+    // A teacher allowing a retake copies the attempt to "<id>~<time>" marked
+    // as a previous attempt. The copy must be identical apart from the marks.
+    function teacherRetakeCopy(attemptId) {
+      let d = request.resource.data;
+      let orig = d.get('originalId', '');
+      let parts = attemptId.split('~');
+      return isTeacher()
+        && orig is string && orig != ''
+        && attemptId == orig + '~' + parts[parts.size() - 1]
+        && d.get('previousAttempt', false) == true
+        && teaches(d.grade, d.section)
+        && exists(docPath('attempts', orig))
+        && get(docPath('attempts', orig)).data.diff(d).affectedKeys().hasOnly(retakeMarks());
+    }
+    // ...and may then remove the original only in the same batch, after
+    // writing retakes/{id} that points at the identical copy.
+    function retakeMoved(id) {
+      let m = docPath('retakes', id);
+      let copy = docPath('attempts', getAfter(m).data.copyId);
+      return existsAfter(m)
+        && existsAfter(copy)
+        && getAfter(copy).data.get('originalId', '') == id
+        && resource.data.diff(getAfter(copy).data).affectedKeys().hasOnly(retakeMarks());
+    }
+    function resultRetakeMoved(id) {
+      let m = docPath('retakes', id);
+      let copy = docPath('results', getAfter(m).data.copyId);
+      return existsAfter(m)
+        && existsAfter(copy)
+        && resource.data.diff(getAfter(copy).data).affectedKeys().hasOnly(['attemptId']);
+    }
+
     match /attempts/{attemptId} {
       // A student may read only their own attempt. Reading an id that does not
-      // exist yet is allowed so the quiz can check for duplicates before
-      // starting. Only the teacher can list attempts.
-      allow get: if isTeacher()
+      // exist yet is allowed so the quiz can check for duplicates first.
+      allow get: if isAdmin()
+        || (resource != null && teaches(resource.data.grade, resource.data.section))
         || (signedIn() && (resource == null || resource.data.uid == request.auth.uid));
-      allow list: if isTeacher();
+      // Teachers must filter by one of their grades AND sections.
+      allow list: if isAdmin() || teaches(resource.data.grade, resource.data.section);
 
-      // Students create their own attempt. The teacher may also create
-      // attempts when restoring archived records, importing a backup, or
-      // keeping an old attempt as a "previous attempt" for a retake.
-      allow create: if isTeacher() || (signedIn() && validNewAttempt(attemptId));
+      allow create: if isAdmin() || teacherRetakeCopy(attemptId)
+        || (signedIn() && validNewAttempt(attemptId));
 
-      // The owner may save progress and submit once. After submission the
-      // attempt is locked for the student. The teacher may only change the
-      // review fields (accept / decline / pending review); answers and
-      // timestamps can never be edited.
+      // The owner may save progress and submit once; then it is locked. Staff
+      // may only change the review fields; answers and times never change.
+      // The Admin may also link an older attempt to its student (studentId).
       allow update: if (signedIn()
           && resource.data.uid == request.auth.uid
           && resource.data.status == 'in_progress'
           && validAttemptUpdate())
-        || (isTeacher()
+        || ((isAdmin() || teaches(resource.data.grade, resource.data.section))
           && request.resource.data.diff(resource.data).affectedKeys()
                .hasOnly(['reviewStatus', 'reviewedAt', 'reviewedBy', 'reviewNote'])
-          && request.resource.data.reviewStatus in ['pending', 'accepted', 'declined']);
+          && request.resource.data.reviewStatus in ['pending', 'accepted', 'declined'])
+        || (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['studentId'])
+          && request.resource.data.studentId is string);
 
-      allow delete: if isTeacher();
+      // Deleting is for the Admin. A teacher can only move an attempt aside
+      // for a retake (see retakeMoved).
+      allow delete: if isAdmin()
+        || (teaches(resource.data.grade, resource.data.section) && retakeMoved(attemptId));
     }
 
-    // ----------------------------------------------------------------- results
+    match /retakes/{attemptId} {
+      allow read: if isAdmin();
+      allow create, update: if (isAdmin()
+          || (exists(docPath('attempts', attemptId))
+              && teaches(get(docPath('attempts', attemptId)).data.grade, get(docPath('attempts', attemptId)).data.section)))
+        && request.resource.data.keys().hasOnly(['copyId', 'at', 'by'])
+        && request.resource.data.copyId is string;
+      allow delete: if isAdmin();
+    }
+
+    // -------------------------------------------------------------- results
     match /results/{attemptId} {
-      allow read, write: if isTeacher();
+      allow get: if isAdmin() || (isTeacher() && (resource == null || teaches(resource.data.grade, resource.data.section)));
+      allow list: if isAdmin() || teaches(resource.data.grade, resource.data.section);
+      // Teachers grade the attempts of their own classes.
+      allow create, update: if isAdmin()
+        || (teaches(request.resource.data.grade, request.resource.data.section)
+            && (resource == null || teaches(resource.data.grade, resource.data.section))
+            && existsAfter(docPath('attempts', attemptId))
+            && getAfter(docPath('attempts', attemptId)).data.grade == request.resource.data.grade
+            && getAfter(docPath('attempts', attemptId)).data.section == request.resource.data.section);
+      allow delete: if isAdmin()
+        || (isTeacher() && (resource == null
+            || (teaches(resource.data.grade, resource.data.section) && resultRetakeMoved(attemptId))));
     }
 
-    // ---------------------------------------------------------------- archive
+    // -------------------------------------------------------------- archive
     match /archivedAttempts/{attemptId} {
-      allow read, write: if isTeacher();
+      allow read, write: if isAdmin();
     }
     match /archivedResults/{attemptId} {
-      allow read, write: if isTeacher();
+      allow read, write: if isAdmin();
     }
 
-    // ---------------------------------------------------------------- helpers
+    // ------------------------------------------------------------- requests
+    function validRequest(d) {
+      return d.keys().hasOnly(['teacherId', 'teacherUid', 'teacherName', 'type', 'studentId', 'studentName',
+          'grade', 'section', 'rollNo', 'recordIds', 'details', 'reason', 'status', 'createdAt'])
+        && d.teacherId == myId() && d.teacherUid == request.auth.uid
+        && d.teacherName == me().get('name', '')
+        && d.type in ['rename_student', 'edit_student', 'delete_student', 'print_records', 'export_records',
+            'archive_records', 'delete_records', 'other']
+        && d.reason is string && d.reason.size() >= 3 && d.reason.size() <= 500
+        && d.get('details', '') is string && d.get('details', '').size() <= 500
+        && d.get('recordIds', []) is list && d.get('recordIds', []).size() <= 200
+        && d.status == 'pending'
+        && d.createdAt == request.time;
+    }
+
+    match /requests/{rid} {
+      allow get, list: if isAdmin() || (isTeacher() && resource.data.teacherId == myId());
+      allow create: if isTeacher() && validRequest(request.resource.data);
+      allow update: if (isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'adminNote', 'decidedAt', 'decidedBy', 'grant', 'completedAt', 'completedBy'])
+          && request.resource.data.status in ['pending', 'approved', 'declined', 'completed'])
+        // a teacher marks an approved one-time permission (print / export) as used
+        || (isTeacher() && resource.data.teacherId == myId()
+          && resource.data.status == 'approved' && resource.data.get('grant', null) != null
+          && request.resource.data.status == 'completed'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt', 'completedBy']));
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------- activity
+    match /activity/{id} {
+      allow get, list: if isAdmin();
+      allow create: if isStaff()
+        && request.resource.data.keys().hasOnly(['actorUid', 'actorId', 'actorName', 'role', 'action', 'text', 'target', 'at'])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorId == myId()
+        && request.resource.data.action is string && request.resource.data.action.size() <= 60
+        && request.resource.data.text is string && request.resource.data.text.size() <= 300
+        && request.resource.data.at == request.time;
+      allow update, delete: if false;
+    }
+
+    // -------------------------------------------------------------- helpers
 
     // settings/school.classSizes["6-A"] = 40 means Grade 6, Section A allows
     // roll numbers 1 to 40. No number (or 0) means no limit.
     function rollAllowed(grade, section, roll) {
-      let path = /databases/$(database)/documents/settings/school;
+      let path = docPath('settings', 'school');
       let sizes = exists(path) ? get(path).data.get('classSizes', {}) : {};
       let max = sizes.get(grade + '-' + section, 0);
       return !(max is int) || max <= 0 || int(roll) <= max;
     }
+
+    // The attempt names the registered student for this grade + section +
+    // roll number (when one is registered) with their registered name.
+    function studentLinkOk(d) {
+      let idx = docPath('studentIndex', d.grade + '_' + d.section + '_' + d.rollNo);
+      return (exists(idx)
+          && d.get('studentId', '') == get(idx).data.studentId
+          && d.studentName == get(idx).data.name)
+        || (!exists(idx) && !('studentId' in d));
+    }
+
     function validNewAttempt(attemptId) {
       let d = request.resource.data;
-      let quiz = get(/databases/$(database)/documents/quizzes/$(d.quizId)).data;
-      return d.keys().hasOnly(['uid', 'quizId', 'quizTitle', 'studentName', 'nameLower',
+      let quiz = get(docPath('quizzes', d.quizId)).data;
+      return d.keys().hasOnly(['uid', 'quizId', 'quizTitle', 'studentName', 'nameLower', 'studentId',
           'rollNo', 'grade', 'section', 'status', 'questionCount', 'order', 'optionOrder',
           'answers', 'answeredCount', 'currentIndex', 'focusLossCount',
           'fullscreenExitCount', 'events', 'startedAt', 'lastSavedAt', 'submittedAt'])
@@ -133,20 +426,23 @@ service cloud.firestore {
           'fullscreenExitCount', 'events', 'startedAt', 'lastSavedAt', 'submittedAt'])
         && d.uid == request.auth.uid
         && d.status == 'in_progress'
-        && d.studentName is string && d.studentName.size() >= 2 && d.studentName.size() <= 80
+        && validName(d.studentName)
         && d.nameLower == d.studentName.lower()
         // Roll numbers start at 1 and may not exceed the section's student
         // limit from School settings (when one is set).
-        && d.rollNo is string && d.rollNo.matches('^[1-9][0-9]{0,5}$')
+        && validRoll(d.rollNo)
         && rollAllowed(d.grade, d.section, d.rollNo)
-        && d.grade is string && d.grade.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$')
-        && d.section is string && d.section.matches('^[A-Za-z0-9][A-Za-z0-9 -]{0,29}$')
+        && validClassName(d.grade)
+        && validClassName(d.section)
         && attemptId == d.quizId + '_' + d.grade + '_' + d.section + '_' + d.rollNo
+        && studentLinkOk(d)
         && quiz.active == true
         && quiz.get('archived', false) != true
         // A quiz made for one grade can only be taken by students of that
-        // grade. (Older quizzes without a grade are open to every grade.)
+        // grade (older quizzes without a grade are open to every grade), and
+        // a quiz for some sections only by students of those sections.
         && (quiz.get('grade', '') == '' || quiz.get('grade', '') == d.grade)
+        && (quiz.get('sections', []).size() == 0 || quiz.get('sections', []).hasAny([d.section]))
         && d.quizTitle == quiz.title
         && d.questionCount == quiz.questionCount
         && d.order is list && d.order.size() == quiz.questionCount

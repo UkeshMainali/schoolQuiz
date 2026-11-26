@@ -3,6 +3,7 @@
 
 import { ensureStudentAuth } from "./auth.js";
 import { loadActiveQuizzes, checkAttempt } from "./submission.js";
+import { lookupStudent, registerStudent } from "./students.js";
 import {
   loadSettings, sectionsFor, validateRoll, rollLimit, normalizeName, makeAttemptId, escapeHtml,
   friendlyError, showNotice, hideNotice, storage, formatDateTime, pluralize,
@@ -10,7 +11,6 @@ import {
 } from "./utilities.js";
 
 const $ = (id) => document.getElementById(id);
-const FIELDS = ["fullName", "rollNo", "grade", "section"];
 
 let settings = null;
 let profile = storage.get(PROFILE_KEY);
@@ -19,6 +19,12 @@ let statuses = new Map();
 let pendingStart = null;
 
 // ------------------------------------------------------------------ profile
+// The student types roll number, grade and section. The registered name is
+// looked up in the student records and filled in (not editable). A student
+// who is not registered yet types their name once and is registered.
+
+let lookup = { state: "idle", key: "", student: null }; // idle | checking | found | new | conflict | error
+let lookupTimer = null;
 
 function fillSelect(select, values, placeholder) {
   select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>` +
@@ -44,6 +50,7 @@ function checkRollLive() {
   $("rollHint").hidden = !max;
   const typed = $("rollNo").value.trim();
   setFieldError("rollNo", typed ? validateRoll(typed, settings, grade, section).error : "");
+  scheduleLookup();
 }
 
 function setFieldError(id, message) {
@@ -52,46 +59,135 @@ function setFieldError(id, message) {
   if (box) { box.textContent = message || ""; box.hidden = !message; }
 }
 
-function showProfileForm(editing) {
+/** Valid roll + grade + section from the form, or null. */
+function formClass() {
+  const grade = $("grade").value, section = $("section").value;
+  const { roll, error } = validateRoll($("rollNo").value, settings, grade, section);
+  if (!grade || !section || error) return null;
+  return { grade, section, roll };
+}
+
+function scheduleLookup() {
+  clearTimeout(lookupTimer);
+  const c = formClass();
+  const key = c ? `${c.grade}_${c.section}_${c.roll}` : "";
+  if (key === lookup.key && lookup.state !== "error") return;
+  lookup = { state: c ? "checking" : "idle", key, student: null };
+  renderLookup();
+  if (c) lookupTimer = setTimeout(() => runLookup(c, key), 350);
+}
+
+async function runLookup(c, key) {
+  try {
+    const res = await lookupStudent(c.grade, c.section, c.roll);
+    if (lookup.key !== key) return; // the student changed the form meanwhile
+    lookup = { state: res.state, key, student: res.student || null };
+  } catch (err) {
+    if (lookup.key !== key) return;
+    console.error(err);
+    lookup = { state: "error", key, student: null, message: friendlyError(err) };
+  }
+  renderLookup();
+}
+
+function renderLookup() {
+  const box = $("lookupStatus");
+  const nameField = $("nameField");
+  const name = $("fullName");
+  const btn = $("saveProfileBtn");
+  const st = lookup.state;
+  box.className = "lookup-status";
+  box.hidden = st === "idle";
+  nameField.hidden = !(st === "found" || st === "new");
+  setFieldError("fullName", "");
+  if (st === "checking") {
+    box.innerHTML = '<span class="spinner" aria-hidden="true"></span> Looking for your record…';
+  } else if (st === "found") {
+    box.classList.add("is-found");
+    box.innerHTML = '<i class="fa-solid fa-circle-check" aria-hidden="true"></i> We found your record.';
+    $("fullNameLabel").textContent = "Your name";
+    name.value = lookup.student.name;
+    name.readOnly = true;
+    name.classList.add("is-locked");
+    $("nameHint").textContent = "Not your name? Check your roll number, grade and section. If they are right, ask your teacher to correct it.";
+    $("nameHint").hidden = false;
+  } else if (st === "new") {
+    box.classList.add("is-new");
+    box.innerHTML = '<i class="fa-solid fa-user-plus" aria-hidden="true"></i> No record yet for this roll number. Type your full name to register.';
+    $("fullNameLabel").textContent = "Full name";
+    if (name.readOnly) name.value = profile && !profile.studentId ? profile.name || "" : "";
+    name.readOnly = false;
+    name.classList.remove("is-locked");
+    $("nameHint").hidden = true;
+  } else if (st === "conflict") {
+    box.classList.add("is-error");
+    box.textContent = "These details do not match a student record correctly. Check your roll number, grade and section, or ask your teacher.";
+  } else if (st === "error") {
+    box.classList.add("is-error");
+    box.textContent = `Could not check your record. ${lookup.message || ""}`;
+  }
+  btn.disabled = !(st === "found" || st === "new");
+  btn.textContent = st === "found" ? "Yes, this is me" : st === "new" ? "Register and see my quizzes" : "Continue";
+}
+
+function showProfileForm(editing, message = "") {
   hideNotice($("notice"));
   $("homeView").hidden = true;
   $("profileCard").hidden = false;
-  $("profileTitle").textContent = editing ? "Change your details" : "Welcome! Tell us who you are";
-  $("profileIntro").textContent = editing
-    ? "Fix any mistake here. Quizzes you already submitted keep the details you used then."
-    : "This is saved on this device, so you only type it once. You can change it later.";
+  $("profileTitle").textContent = editing ? "Check your details" : "Welcome! Find yourself";
+  $("profileIntro").textContent = message || "Enter your roll number, grade and section.";
   $("cancelProfileBtn").hidden = !editing;
   fillSelect($("grade"), settings.grades.map((g) => ({ value: g, label: `Grade ${g}` })), "Choose grade");
-  $("fullName").value = editing ? profile.name : "";
-  $("rollNo").value = editing ? profile.roll : "";
-  $("grade").value = editing && settings.grades.includes(profile.grade) ? profile.grade : (settings.grades.length === 1 ? settings.grades[0] : "");
-  updateSectionOptions(editing ? profile.section : "");
-  FIELDS.forEach((id) => setFieldError(id, ""));
-  $("fullName").focus();
-}
-
-function readProfileForm() {
-  const name = normalizeName($("fullName").value);
-  const { roll, error: rollError } = validateRoll($("rollNo").value, settings, $("grade").value, $("section").value);
-  const errors = {
-    fullName: !name ? "Please enter your full name." : name.length < 2 ? "Name is too short." : "",
-    rollNo: rollError,
-    grade: !$("grade").value ? "Please choose your grade." : "",
-    section: !$("section").value ? "Please choose your section." : ""
-  };
-  FIELDS.forEach((id) => setFieldError(id, errors[id]));
-  const firstBad = FIELDS.find((id) => errors[id]);
-  if (firstBad) { $(firstBad).focus(); return null; }
-  return { name, roll, grade: $("grade").value, section: $("section").value };
+  $("rollNo").value = editing && profile ? profile.roll : "";
+  $("grade").value = editing && profile && settings.grades.includes(profile.grade) ? profile.grade : (settings.grades.length === 1 ? settings.grades[0] : "");
+  $("fullName").value = "";
+  $("fullName").readOnly = true;
+  lookup = { state: "idle", key: "", student: null };
+  ["rollNo", "grade", "section", "fullName"].forEach((id) => setFieldError(id, ""));
+  updateSectionOptions(editing && profile ? profile.section : "");
+  $("rollNo").focus();
 }
 
 async function onSaveProfile(e) {
   e.preventDefault();
   // Use the latest limits: the teacher may have changed them since the page opened.
   settings = await loadSettings();
-  const p = readProfileForm();
-  if (!p) return;
-  profile = p;
+  const errors = {
+    rollNo: validateRoll($("rollNo").value, settings, $("grade").value, $("section").value).error,
+    grade: !$("grade").value ? "Please choose your grade." : "",
+    section: !$("section").value ? "Please choose your section." : ""
+  };
+  Object.entries(errors).forEach(([id, msg]) => setFieldError(id, msg));
+  const c = formClass();
+  if (!c) { const bad = Object.keys(errors).find((id) => errors[id]); if (bad) $(bad).focus(); return; }
+  if (`${c.grade}_${c.section}_${c.roll}` !== lookup.key) { scheduleLookup(); return; }
+  const btn = $("saveProfileBtn");
+  if (lookup.state === "found") {
+    profile = { name: lookup.student.name, studentId: lookup.student.id, roll: c.roll, grade: c.grade, section: c.section };
+  } else if (lookup.state === "new") {
+    const name = normalizeName($("fullName").value);
+    const err = !name ? "Please enter your full name." : name.length < 2 ? "Name is too short." : !/[A-Za-zऀ-ॿ]/.test(name) ? "Please enter your name in letters." : "";
+    setFieldError("fullName", err);
+    if (err) { $("fullName").focus(); return; }
+    btn.disabled = true;
+    btn.textContent = "Registering…";
+    try {
+      const reg = await registerStudent({ name, grade: c.grade, section: c.section, roll: c.roll });
+      if (reg.existing) {
+        // Someone registered this roll number a moment ago: never join them silently.
+        lookup = { state: "found", key: lookup.key, student: { id: reg.id, name: reg.name } };
+        renderLookup();
+        showNotice($("notice"), "This roll number was just registered. Check the name below: press \"Yes, this is me\" only if it is you.", "warning");
+        return;
+      }
+      profile = { name: reg.name, studentId: reg.id, roll: c.roll, grade: c.grade, section: c.section };
+    } catch (err2) {
+      console.error(err2);
+      showNotice($("notice"), `Could not register. ${friendlyError(err2)}`, "error");
+      renderLookup();
+      return;
+    }
+  } else return;
   storage.set(PROFILE_KEY, profile);
   await showHome();
 }
@@ -102,9 +198,38 @@ function profileIsValid(p) {
     && !validateRoll(p.roll, settings, p.grade, p.section).error;
 }
 
+/**
+ * Checks the saved profile against the student records (one read): picks up
+ * a name the Admin corrected, and asks the student to confirm their details
+ * if their record changed or they have not registered yet.
+ * Returns true when the quiz list can be shown.
+ */
+async function syncProfile() {
+  let res;
+  try { res = await lookupStudent(profile.grade, profile.section, profile.roll); } catch (err) { console.warn("Lookup failed; using saved details", err); return true; }
+  if (res.state === "found" && (!profile.studentId || profile.studentId === res.student.id)) {
+    if (!profile.studentId) {
+      showProfileForm(true, "Please confirm your details once.");
+      $("cancelProfileBtn").hidden = true;
+      return false;
+    }
+    if (profile.name !== res.student.name) { profile.name = res.student.name; storage.set(PROFILE_KEY, profile); }
+    return true;
+  }
+  if (res.state === "new" && !profile.studentId) {
+    showProfileForm(true, "Please register once: check your details and press Register.");
+    $("cancelProfileBtn").hidden = true;
+    return false;
+  }
+  showProfileForm(true, "Your student record has changed. Please enter your details again, or ask your teacher.");
+  $("cancelProfileBtn").hidden = true;
+  return false;
+}
+
 // --------------------------------------------------------------- quiz list
 
-async function showHome() {
+async function showHome({ sync = true } = {}) {
+  if (sync && !(await syncProfile())) return;
   $("profileCard").hidden = true;
   $("homeView").hidden = false;
   $("profileName").textContent = profile.name;
@@ -112,7 +237,7 @@ async function showHome() {
   $("quizList").innerHTML = skeleton("list", { rows: 4 });
   $("progressText").textContent = "";
   try {
-    quizzes = await loadActiveQuizzes(profile.grade);
+    quizzes = await loadActiveQuizzes(profile.grade, profile.section);
     quizzes.sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { numeric: true }));
     // One small read per quiz to show its status for this student.
     const results = await Promise.all(quizzes.map((q) =>
@@ -137,7 +262,7 @@ function statusOf(quiz) {
 
 function renderQuizList() {
   if (!quizzes.length) {
-    $("quizList").innerHTML = `<div class="card empty">There are no quizzes for Grade ${escapeHtml(profile.grade)} right now. Please wait for your teacher to open one, then refresh this page.</div>`;
+    $("quizList").innerHTML = `<div class="card empty">There are no quizzes for Grade ${escapeHtml(profile.grade)}, Section ${escapeHtml(profile.section)} right now. Please wait for your teacher to open one, then refresh this page.</div>`;
     return;
   }
   const done = quizzes.filter((q) => statusOf(q).key === "done").length;
@@ -207,7 +332,7 @@ async function confirmStart() {
   }
   storage.set(PENDING_KEY, {
     quizId: pendingStart.id,
-    student: { name: profile.name, roll: profile.roll, grade: profile.grade, section: profile.section }
+    student: { name: profile.name, roll: profile.roll, grade: profile.grade, section: profile.section, studentId: profile.studentId || "" }
   });
   storage.remove(ACTIVE_KEY);
   location.href = "quiz.html";
@@ -227,7 +352,6 @@ async function init() {
       showProfileForm(!!profile);
       if (profile) {
         $("cancelProfileBtn").hidden = true;
-        checkRollLive();
         const gradeOk = settings.grades.includes(profile.grade) && sectionsFor(settings, profile.grade).includes(profile.section);
         showNotice($("notice"), gradeOk
           ? "Your roll number is not allowed for your section in the school settings. Please check it, or ask your teacher."
@@ -245,7 +369,7 @@ $("profileForm").addEventListener("submit", onSaveProfile);
 $("grade").addEventListener("change", () => updateSectionOptions());
 $("section").addEventListener("change", () => checkRollLive());
 $("rollNo").addEventListener("input", () => checkRollLive());
-$("cancelProfileBtn").addEventListener("click", () => showHome());
+$("cancelProfileBtn").addEventListener("click", () => showHome({ sync: false }));
 $("editProfileBtn").addEventListener("click", () => showProfileForm(true));
 $("switchStudentBtn").addEventListener("click", () => {
   storage.remove(PROFILE_KEY);
@@ -257,6 +381,6 @@ $("switchStudentBtn").addEventListener("click", () => {
 $("quizList").addEventListener("click", onQuizListClick);
 $("confirmBack").addEventListener("click", () => { $("confirmModal").hidden = true; pendingStart = null; });
 $("confirmStart").addEventListener("click", confirmStart);
-FIELDS.filter((id) => id !== "rollNo").forEach((id) => $(id).addEventListener("input", () => setFieldError(id, "")));
+$("fullName").addEventListener("input", () => setFieldError("fullName", ""));
 
 init();

@@ -8,7 +8,8 @@
 import { round } from "./utilities.js";
 
 export const countable = (rows) => rows.filter((r) => r.grading === "graded" && r.review !== "declined");
-export const studentKey = (r) => `${r.grade}|${r.section}|${r.rollNo}`;
+// One student: their permanent id, or grade|section|roll for records not linked yet.
+export const studentKey = (r) => (r.studentId ? `id:${r.studentId}` : `${r.grade}|${r.section}|${r.rollNo}`);
 
 function stats(values) {
   if (!values.length) return { count: 0, avg: null, max: null, min: null };

@@ -12,8 +12,11 @@
 
 import {
   queryAttempts, queryAllAttempts, fetchResults, countAttempts, setReviewStatus, deleteRecords,
-  archiveRecords, restoreRecords
+  archiveRecords, restoreRecords, isSplitScope
 } from "./records.js";
+import { isAdmin, myGrades, mySections, NO_PERMISSION } from "./roles.js";
+import { openRequestDialog } from "./requests.js";
+import { logActivity } from "./auth.js";
 import { PAGE_SIZE, pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { gradeAttempts, needsGrading, clearKeyCache } from "./grading.js";
 import { buildBackup, summaryCsv, detailedCsv } from "./backup.js";
@@ -21,9 +24,10 @@ import { buildReport, printHtml } from "./print.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import { teacher, sortedQuizzes, quizTitle, appNotice, onTeacherChange } from "./teacherState.js";
 import { overview } from "./analytics.js";
+import { nameFor, studentFor } from "./students.js";
 import {
   escapeHtml, formatDateTime, toDate, friendlyError, downloadFile, confirmDialog, pluralize,
-  sectionsFor, storage, historyLink, skeletonRows
+  storage, historyLink, skeletonRows
 } from "./utilities.js";
 
 const FLAG_THRESHOLD = 3;
@@ -65,8 +69,11 @@ export function toRow(a, result, isArchive = false) {
     result,
     quizId: a.quizId,
     quizTitle: a.quizTitle || quizTitle(a.quizId),
-    studentName: a.studentName,
-    nameLower: a.nameLower || String(a.studentName || "").toLowerCase(),
+    // The current registered name; typedName is what was typed at the time.
+    studentName: nameFor(a),
+    nameLower: String(nameFor(a)).toLowerCase(),
+    typedName: a.studentName,
+    studentId: studentFor(a)?.id || a.studentId || "",
     rollNo: a.rollNo,
     rollNum: Number(a.rollNo),
     grade: a.grade,
@@ -121,6 +128,7 @@ export class RecordsView {
 
   renderSkeleton() {
     const a = this.isArchive;
+    const admin = isAdmin();
     const menu = (label, which, items) => `
       <details class="menu">
         <summary class="btn btn-small">${label}</summary>
@@ -156,17 +164,19 @@ export class RecordsView {
         <div class="table-head">
           <span class="small muted" data-count></span>
           <div class="table-actions">
-            ${menu("Print", "filtered", [["print", "Results by student (shown)"], ["sheets", "Answer sheets by student (shown)"]])}
-            ${menu("Export", "filtered", [["csv", "Summary CSV (shown)"], ["detailcsv", "Detailed CSV with answers (shown)"], ["backup", "Backup file, JSON (shown)"]])}
+            ${admin ? menu("Print", "filtered", [["print", "Results by student (shown)"], ["sheets", "Answer sheets by student (shown)"]]) : ""}
+            ${admin ? menu("Export", "filtered", [["csv", "Summary CSV (shown)"], ["detailcsv", "Detailed CSV with answers (shown)"], ["backup", "Backup file, JSON (shown)"]]) : ""}
             <details class="menu">
               <summary class="btn btn-small">More</summary>
               <div class="menu-list">
                 ${a ? `
                 <button type="button" data-act="restore-filtered">Restore all shown</button>
-                <button type="button" data-act="delete-filtered" class="danger">Permanently delete all shown…</button>` : `
+                <button type="button" data-act="delete-filtered" class="danger">Permanently delete all shown…</button>` : admin ? `
                 <button type="button" data-act="regrade-filtered">Regrade all shown</button>
                 <button type="button" data-act="archive-filtered">Archive all shown</button>
-                <button type="button" data-act="delete-filtered" class="danger">Delete all shown…</button>`}
+                <button type="button" data-act="delete-filtered" class="danger">Delete all shown…</button>` : `
+                <button type="button" data-act="regrade-filtered">Regrade all shown</button>
+                <button type="button" data-act="request-filtered">Ask the Admin to print, export or remove these…</button>`}
               </div>
             </details>
           </div>
@@ -179,10 +189,10 @@ export class RecordsView {
           <button type="button" class="btn btn-small" data-act="grade-selected">Grade</button>
           <button type="button" class="btn btn-small" data-act="accept-selected">Accept</button>
           <button type="button" class="btn btn-small" data-act="decline-selected">Decline</button>`}
-          ${menu("Print", "selected", [["print", "Results by student"], ["sheets", "Answer sheets by student"]])}
-          ${menu("Export", "selected", [["csv", "Summary CSV"], ["detailcsv", "Detailed CSV with answers"], ["backup", "Backup file (JSON)"]])}
-          ${a ? "" : '<button type="button" class="btn btn-small" data-act="archive-selected">Archive</button>'}
-          <button type="button" class="btn btn-small btn-danger" data-act="delete-selected">Delete</button>
+          ${admin ? menu("Print", "selected", [["print", "Results by student"], ["sheets", "Answer sheets by student"]]) : ""}
+          ${admin ? menu("Export", "selected", [["csv", "Summary CSV"], ["detailcsv", "Detailed CSV with answers"], ["backup", "Backup file (JSON)"]]) : ""}
+          ${a || !admin ? "" : '<button type="button" class="btn btn-small" data-act="archive-selected">Archive</button>'}
+          ${admin ? '<button type="button" class="btn btn-small btn-danger" data-act="delete-selected">Delete</button>' : '<button type="button" class="btn btn-small" data-act="request-selected" data-icon="paper-plane">Ask the Admin…</button>'}
           <button type="button" class="btn-link small" data-act="clear-selection">Clear selection</button>
         </div>
 
@@ -362,7 +372,7 @@ export class RecordsView {
   /** Small count queries for the Grade / Section chips. */
   async loadCounts() {
     try {
-      const grades = teacher.settings.grades;
+      const grades = myGrades(teacher.settings);
       const gCounts = await Promise.all(grades.map((g) => countAttempts(this.source, { grade: g, quizId: this.scope.quizId })));
       this.counts.grades = new Map(grades.map((g, i) => [g, gCounts[i]]));
       this.counts.sections = new Map();
@@ -379,7 +389,8 @@ export class RecordsView {
 
   sectionChoices() {
     const g = this.scope.grade;
-    const fromSettings = sectionsFor(teacher.settings, g);
+    const fromSettings = mySections(teacher.settings, g);
+    if (!isAdmin()) return fromSettings;
     const seen = this.items.filter((a) => a.grade === g).map((a) => a.section);
     return [...new Set([...fromSettings, ...seen, ...(this.scope.section ? [this.scope.section] : [])])];
   }
@@ -397,7 +408,8 @@ export class RecordsView {
 
   /** Sorting and filtering apply to every record of the scope, so they need all of it. */
   needsFull() {
-    return !!this.sort.key || this.filtersOn();
+    // A teacher's scope covering several classes is read whole (one query per class).
+    return !!this.sort.key || this.filtersOn() || isSplitScope(this.scope);
   }
 
   selectedRows() {
@@ -441,8 +453,10 @@ export class RecordsView {
     const s = this.scope;
     const chip = (level, value, label, count) =>
       `<button type="button" class="chip${(s[level] || "") === value ? " active" : ""}" data-scope-${level}="${escapeHtml(value)}">${escapeHtml(label)}${count !== undefined ? ` <span class="chip-count">${count}</span>` : ""}</button>`;
-    this.$('[data-level="grade"]').innerHTML = chip("grade", "", "All grades") +
-      teacher.settings.grades.map((g) => chip("grade", g, `Grade ${g}`, this.counts.grades.get(g))).join("");
+    const grades = myGrades(teacher.settings);
+    if (s.grade && !grades.includes(s.grade)) { s.grade = ""; s.section = ""; }
+    this.$('[data-level="grade"]').innerHTML = chip("grade", "", isAdmin() ? "All grades" : "All my classes") +
+      grades.map((g) => chip("grade", g, `Grade ${g}`, this.counts.grades.get(g))).join("");
     const secRow = this.$('[data-row="section"]');
     secRow.hidden = !s.grade;
     if (s.grade) {
@@ -475,7 +489,7 @@ export class RecordsView {
     const view = `result.html?id=${encodeURIComponent(r.id)}${this.isArchive ? "&source=archive" : ""}`;
     const items = [
       `<a href="${view}">View details</a>`,
-      `<a href="${history}">Student history</a>`
+      `<a href="${history}">Student record</a>`
     ];
     if (this.isArchive) {
       items.push(`<button type="button" data-row-act="restore" data-id="${escapeHtml(r.id)}">Restore</button>`);
@@ -486,10 +500,13 @@ export class RecordsView {
         if (r.review !== "declined") items.push(`<button type="button" data-row-act="decline" data-id="${escapeHtml(r.id)}">Decline</button>`);
         if (r.review !== "pending") items.push(`<button type="button" data-row-act="pending" data-id="${escapeHtml(r.id)}">Mark pending review</button>`);
       }
-      items.push(`<button type="button" data-row-act="print" data-id="${escapeHtml(r.id)}">Print report</button>`);
-      items.push(`<button type="button" data-row-act="archive" data-id="${escapeHtml(r.id)}">Archive</button>`);
+      if (isAdmin()) {
+        items.push(`<button type="button" data-row-act="print" data-id="${escapeHtml(r.id)}">Print report</button>`);
+        items.push(`<button type="button" data-row-act="archive" data-id="${escapeHtml(r.id)}">Archive</button>`);
+      }
     }
-    items.push(`<button type="button" data-row-act="delete" data-id="${escapeHtml(r.id)}" class="danger">${this.isArchive ? "Delete permanently" : "Delete"}</button>`);
+    if (isAdmin()) items.push(`<button type="button" data-row-act="delete" data-id="${escapeHtml(r.id)}" class="danger">${this.isArchive ? "Delete permanently" : "Delete"}</button>`);
+    else items.push(`<button type="button" data-row-act="request" data-id="${escapeHtml(r.id)}">Ask the Admin…</button>`);
     return `<details class="menu row-menu"><summary class="btn btn-small" aria-label="Actions for ${escapeHtml(r.studentName)}">⋯</summary><div class="menu-list">${items.join("")}</div></details>`;
   }
 
@@ -682,8 +699,15 @@ export class RecordsView {
 
   async runAction(verb, rows, label) {
     if (!rows.length) { appNotice("There are no records for this action.", "info"); return; }
+    const adminOnly = ["print", "sheets", "csv", "detailcsv", "backup", "archive", "restore", "delete"];
+    if (!isAdmin() && adminOnly.includes(verb)) { appNotice(NO_PERMISSION, "error"); return; }
     try {
       switch (verb) {
+        case "request": return void await openRequestDialog({
+          types: ["print_records", "export_records", "archive_records", "delete_records", "other"],
+          records: rows.slice(0, 200).map((r) => ({ id: r.id, studentName: r.studentName, quizTitle: r.quizTitle, grade: r.grade, section: r.section, rollNo: r.rollNo })),
+          intro: rows.length > 200 ? "Only the first 200 records are attached to one request." : ""
+        });
         case "grade": return await this.grade(rows.filter((r) => r.submitted && r.review !== "declined"), rows);
         case "regrade": {
           const ok = await confirmDialog({ title: `Regrade ${pluralize(rows.length, "record")}?`, text: "Uses the current answer keys. Manual corrections are kept.", okText: "Regrade" });
@@ -801,6 +825,7 @@ export class RecordsView {
     const n = await archiveRecords(rows.map((r) => ({ id: r.id, attempt: r.attempt, result: r.result })),
       (d, t) => appNotice(`Archiving ${d} of ${t}…`, "info"));
     this.removeRows(rows);
+    logActivity("records_archived", `Archived ${pluralize(n, "record")} (${this.scopeDescription()})`);
     appNotice(`Archived ${pluralize(n, "record")}. Find them on the Archive & backup tab.`, "success");
     this.onChanged?.("move");
   }
@@ -830,6 +855,7 @@ export class RecordsView {
     if (res.option) this.exportBackup(rows);
     const done = await deleteRecords(this.source, rows, (d, t) => appNotice(`Deleting ${d} of ${t}…`, "info"));
     this.removeRows(rows);
+    logActivity("records_deleted", `Deleted ${pluralize(done, "record")}${this.isArchive ? " from the archive" : ""} (${this.scopeDescription()})`);
     appNotice(`Deleted ${pluralize(done, "record")}.`, "success");
     this.onChanged?.("delete");
   }

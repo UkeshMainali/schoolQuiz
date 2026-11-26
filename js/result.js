@@ -1,10 +1,15 @@
-// One student record (result.html?id=<attemptId>[&source=archive]). Teacher only.
+// One student record (result.html?id=<attemptId>[&source=archive]). Staff only.
 // Shows marks, answers and activity, and offers the per-record actions:
-// grade / recalculate, accept / decline / pending review, print, allow
-// retake (keeps the old attempt), archive / restore and delete.
+// grade / recalculate, accept / decline / pending review and allow retake
+// (keeps the old attempt) for the Admin and the class's teachers; print,
+// archive / restore and delete for the Admin only (teachers send a request).
+// firestore.rules decide what can really be read or changed.
 
 import { db, doc, getDoc, setDoc } from "./firebase.js";
-import { watchTeacher } from "./auth.js";
+import { watchStaff } from "./auth.js";
+import { isAdmin, NO_PERMISSION } from "./roles.js";
+import { lookupStudent } from "./students.js";
+import { openRequestDialog } from "./requests.js";
 import { loadAnswerKey, gradeAttempt, buildResultDoc, needsGrading } from "./grading.js";
 import { setReviewStatus, archiveRecords, restoreRecords, deleteRecords, allowRetake, SOURCES } from "./records.js";
 import { buildBackup } from "./backup.js";
@@ -56,7 +61,29 @@ if (isArchive) {
   $("backLink").textContent = "← Back to archive";
 }
 
-watchTeacher(() => load(), () => { location.replace("dashboard.html"); });
+watchStaff(() => {
+  document.body.classList.toggle("is-admin", isAdmin());
+  if (isArchive && !isAdmin()) { fail(NO_PERMISSION); return; }
+  load();
+}, () => { location.replace("dashboard.html"); });
+
+/** The student's current registered name (null if not registered or not visible). */
+async function currentStudent(a) {
+  try {
+    if (a.studentId) {
+      const s = await getDoc(doc(db, "students", a.studentId));
+      if (s.exists()) return { id: s.id, ...s.data() };
+    }
+    const found = await lookupStudent(a.grade, a.section, a.rollNo);
+    if (found.state === "found" && (!a.studentId || found.student.id === a.studentId)) {
+      return { id: found.student.id, name: found.student.name, grade: a.grade, section: a.section, rollNo: a.rollNo };
+    }
+  } catch (err) {
+    console.warn("Student not loaded", err);
+  }
+  return null;
+}
+let student = null;
 
 async function load() {
   if (!attemptId) { fail("No student record was selected."); return; }
@@ -72,7 +99,7 @@ async function load() {
     result = rSnap.exists() ? { id: rSnap.id, ...rSnap.data() } : null;
     const qSnap = await getDoc(doc(db, "quizzes", attempt.quizId));
     quiz = qSnap.exists() ? { id: qSnap.id, ...qSnap.data() } : null;
-    key = await loadAnswerKey(attempt.quizId, { refresh: true });
+    [key, student] = await Promise.all([loadAnswerKey(attempt.quizId, { refresh: true }), currentStudent(attempt)]);
     render();
   } catch (err) {
     console.error(err);
@@ -87,13 +114,14 @@ function fail(message) {
 
 function note(text, type = "info") { showNotice($("notice"), text, type); }
 
-const historyUrl = () => historyLink(attempt.grade, attempt.section, attempt.rollNo);
+const historyUrl = () => student?.id ? `dashboard.html#student=${encodeURIComponent(student.id)}` : historyLink(attempt.grade, attempt.section, attempt.rollNo);
+const shownName = () => student?.name || attempt.studentName || "";
 
 function render() {
   $("loading").hidden = true;
   $("content").hidden = false;
-  document.title = `${attempt.studentName} – Result`;
-  $("studentName").textContent = attempt.studentName;
+  document.title = `${shownName()} – Result`;
+  $("studentName").textContent = shownName();
   $("studentMeta").innerHTML = `Roll no. ${escapeHtml(attempt.rollNo)} · Grade ${escapeHtml(attempt.grade)} · Section ${escapeHtml(attempt.section)} · ${escapeHtml(attempt.quizTitle)}`;
 
   const submitted = attempt.status === "submitted";
@@ -139,6 +167,8 @@ function render() {
     ["Review", review ? `${{ pending: "Pending review", accepted: "Accepted", declined: "Declined" }[review]}${attempt.reviewedAt ? `, ${formatDateTime(attempt.reviewedAt)}` : ""}` : "—"],
     ["Pass mark", shown ? `${shown.passPercent}%` : "—"],
     ...(isArchive ? [["Archived", `${formatDateTime(attempt.archivedAt)}${attempt.archivedBy ? ` by ${attempt.archivedBy}` : ""}`]] : []),
+    ...(student?.name && attempt.studentName && student.name !== attempt.studentName ? [["Name typed at the time", attempt.studentName]] : []),
+    ...(student?.id ? [["Student ID", student.id]] : []),
     ...(attempt.originalId ? [["Original record", attempt.originalId]] : [])
   ].map(([k, v]) => `<div><dt>${k}</dt><dd>${escapeHtml(v)}</dd></div>`).join("");
 
@@ -160,13 +190,17 @@ function renderActions(submitted, review, needsSave) {
   if (!isArchive && submitted && key && review !== "declined" && !needsSave) more.push(m("grade", result ? "Recalculate marks" : "Grade now"));
   if (!isArchive && submitted && review !== "pending") more.push(m("pending", "Mark pending review"));
   if (!isArchive && !attempt.previousAttempt) more.push(m("retake", "Allow retake"));
-  more.push(m(isArchive ? "restore" : "archive", isArchive ? "Restore to results" : "Archive"));
-  more.push(m("delete", isArchive ? "Delete permanently…" : "Delete…", "danger"));
+  if (isAdmin()) {
+    more.push(m(isArchive ? "restore" : "archive", isArchive ? "Restore to results" : "Archive"));
+    more.push(m("delete", isArchive ? "Delete permanently…" : "Delete…", "danger"));
+  } else {
+    more.push(m("request", "Ask the Admin…"));
+  }
   $("actions").innerHTML = `
     ${review_.length ? `<div class="action-group">${review_.join("")}</div>` : ""}
     <div class="action-group">
-      ${b("print", "Print report")}
-      <a class="btn" href="${historyUrl()}">Student history</a>
+      ${isAdmin() ? b("print", "Print report") : ""}
+      <a class="btn" href="${historyUrl()}">Student record</a>
     </div>
     <details class="menu action-more">
       <summary class="btn">More</summary>
@@ -281,7 +315,14 @@ const ACTIONS = {
     const ok = await confirmDialog({ title: "Decline this submission?", text: "It is left out of grades and averages. You can accept it later.", okText: "Decline" });
     if (ok) await review("declined", "Declined by teacher");
   },
+  async request() {
+    await openRequestDialog({
+      types: ["print_records", "export_records", "archive_records", "delete_records", "rename_student", "other"],
+      records: [{ id: attempt.id, studentName: shownName(), quizTitle: attempt.quizTitle, grade: attempt.grade, section: attempt.section, rollNo: attempt.rollNo }]
+    });
+  },
   async print() {
+    if (!isAdmin()) { note(NO_PERMISSION, "error"); return; }
     const html = await buildReport([{ id: attempt.id, attempt, result, archived: isArchive }], {
       title: "Quiz report",
       includeAnswers: true,
@@ -302,6 +343,7 @@ const ACTIONS = {
     setTimeout(() => location.replace(historyUrl()), 1200);
   },
   async archive() {
+    if (!isAdmin()) { note(NO_PERMISSION, "error"); return; }
     const ok = await confirmDialog({ title: "Archive this record?", text: "You can restore it later.", okText: "Archive" });
     if (!ok) return;
     await archiveRecords([record()]);
@@ -313,6 +355,7 @@ const ACTIONS = {
     location.replace(`result.html?id=${encodeURIComponent(attempt.id)}`);
   },
   async delete() {
+    if (!isAdmin()) { note(NO_PERMISSION, "error"); return; }
     const res = await confirmDialog({
       title: isArchive ? "Permanently delete this record?" : "Delete this record?",
       text: "This cannot be undone.",

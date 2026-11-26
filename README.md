@@ -1,4 +1,4 @@
-# Classroom Quiz
+# Exam Evaluation System (EES)
 
 A quiz website for school students, plus a teacher dashboard for quizzes and
 results. Built with plain **HTML, CSS and JavaScript** and **Firebase**
@@ -8,10 +8,13 @@ frameworks. Firebase is loaded from Google's CDN (SDK version 12.19.0, set in
 `js/firebase.js`).
 
 - **Students** type their name, roll number, grade and section once (it is remembered on the device), see the quizzes for their grade with a status for each, and take a quiz one question at a time. They need no account and no password.
-- **The teacher** signs in to `dashboard.html` to add and manage quizzes, set grades and sections, grade and review submissions, print or save results as PDF, archive, back up and restore records, and see analysis.
+- **Students** now enter their roll number, grade and section. A registered student's name fills in by itself (and cannot be changed by the student); a new student types their name once and gets a permanent student ID.
+- **The Admin** (one account) signs in to `dashboard.html` and can do everything: add teacher accounts, school settings, all quizzes and records, print, export, archive, back up, and edit students.
+- **Teachers** sign in with the username and password the Admin gave them. They see only the classes (grade + section) the Admin assigned to them, manage only their own quizzes, and ask the Admin for anything else (for example correcting a student's name).
 
-**Version 2.0** (November 2026). What changed from version 1 is listed in
-[section 10](#10-version-20-changes-and-upgrading), together with the upgrade steps.
+**Version 3.0** (November 2026) adds the Admin and teacher roles.
+**If you are upgrading an existing site, follow [section 11](#11-version-30-admin-and-teacher-roles) first.**
+Version 2.0 changes are in [section 10](#10-version-20-changes-and-upgrading).
 
 ---
 
@@ -21,17 +24,29 @@ frameworks. Firebase is loaded from Google's CDN (SDK version 12.19.0, set in
 classroom-quiz/
 ├── index.html            Student homepage: remembered details + quiz list for the student's grade
 ├── quiz.html             The quiz (one question at a time)
-├── dashboard.html        Teacher dashboard (results, student history, analysis, quizzes, archive & backup, settings)
-├── result.html           One student record (teacher only)
-├── student.html          Forwards old history links to the dashboard's Student history tab
+├── dashboard.html        Staff dashboard (overview, results, student record, analysis, quizzes, requests, add teacher, archive & backup, settings, help)
+├── result.html           One quiz record (Admin, or the class's teachers)
+├── student.html          Forwards old history links to the dashboard's Student record tab
 ├── about.html            About page with the creator credit
+├── assets/
+│   ├── img/              EES logo (original SVG/PNG files, header logo, white sign-in logo, favicons)
+│   └── site.webmanifest  App name and icons for phones
 ├── css/
 │   ├── style.css         Shared design + the print/PDF layout
 │   ├── quiz.css          Student pages
 │   └── dashboard.css     Teacher pages
 ├── js/
 │   ├── firebase.js       Firebase config + initialisation (the only place the SDK is imported)
-│   ├── auth.js           Anonymous student sign-in, teacher sign-in and check
+│   ├── auth.js           Anonymous student sign-in, staff sign-in (username or email), role check, first Admin setup, activity log
+│   ├── roles.js          Who is signed in (Admin or teacher) and which classes they may see
+│   ├── teachersAdmin.js  Add teacher page (Admin): create, edit, username, reset password, deactivate, delete
+│   ├── students.js       Student IDs: lookup, self-registration, edit/move/delete (Admin), one-time linking of old results
+│   ├── studentRecord.js  Student record tab: search, filters, one student's details and quizzes, Admin actions
+│   ├── requests.js       Requests tab: teachers ask the Admin; the Admin approves, declines, does it, or grants a one-time permission
+│   ├── overview.js       Overview tab: totals, recent quizzes, recent submissions, recent activity
+│   ├── help.js           Help tab: guides for the Admin and for teachers, keyboard shortcuts
+│   ├── shortcuts.js      Keyboard shortcuts (G then a letter)
+│   ├── scrollButtons.js  Left / right buttons above wide tables
 │   ├── utilities.js      Shared helpers (settings, formatting, CSV, dialogs, storage)
 │   ├── controls.js       Styled dropdowns, date pickers and file drop zones used on every page
 │   ├── icons.js          Adds the matching Font Awesome icon to every button and menu item
@@ -56,8 +71,7 @@ classroom-quiz/
 │   ├── tableSort.js      Column sorting shared by every dashboard table
 │   ├── pager.js          Page navigation (50 per page) shared by the dashboard tables
 │   ├── settingsAdmin.js  School settings tab: grades, sections per grade, students per section (highest roll number)
-│   ├── result.js         result.html logic
-│   └── studentHistory.js Student history tab: find students, one student's history, history prints
+│   └── result.js         result.html logic
 ├── data/
 │   └── sample-questions.json   Example of the older single-lesson format (blocked on Netlify)
 ├── firestore.rules       Security rules (the real protection)
@@ -78,9 +92,16 @@ classroom-quiz/
 
 | Collection | Contents | Who can read | Who can write |
 |---|---|---|---|
-| `teachers/{uid}` | One document per authorised teacher | That teacher only | Nobody from the website (you add it in the console) |
-| `settings/school` | Grades, sections of each grade, pass mark, students per section (`classSizes`, also the highest roll number) | Any signed-in user | Teacher |
-| `settings/quizCategories` | The quiz tabs: `{ categories: [{ id, name }] }`, in display order | Any signed-in user (names only) | Teacher |
+| `teachers/{uid}` | One per staff account: `role` (`admin` or `teacher`), `teacherId` (stable), name, username, `classes` `{ "6": ["A","B"] }`, `status` (`active`/`disabled`). **No passwords.** | That person and the Admin | Admin only (a teacher cannot change their own role or classes) |
+| `system/admin` | Which account is the Admin (written once, at first setup) | Staff | Nobody after the first setup |
+| `usernames/{username}` | Username → the sign-in email of that teacher account | Anyone (one name at a time, no listing) | Admin |
+| `teacherSettings/{teacherId}` | A teacher's own quiz tabs | That teacher | That teacher |
+| `students/{id}` | Permanent student record: name, grade, section, roll number, earlier names | Admin; teachers for their classes | Admin (and a student registering themselves once) |
+| `studentIndex/{grade_section_roll}` | Finds a student from roll number + grade + section; can be created only once, so no duplicates | Anyone signed in (one at a time) | Admin (and self-registration) |
+| `requests/{id}` | Teacher requests to the Admin | The Admin; a teacher their own | Teachers create; the Admin decides |
+| `activity/{id}` | Log of staff actions (teachers created, quizzes added, records archived, requests decided…) | Admin | Staff add lines; nobody edits or deletes |
+| `settings/school` | Grades, sections of each grade, pass mark, students per section (`classSizes`, also the highest roll number) | Any signed-in user | Admin |
+| `settings/quizCategories` | The Admin's quiz tabs: `{ categories: [{ id, name }] }`, in display order | Any signed-in user (names only) | Admin |
 | `quizzes/{quizId}` | Quiz list entry: title, grade, question count, marks, lessons, open/closed, archived, `categoryId` (its tab). **No questions, no answers.** | Students: open quizzes only. Teacher: all | Teacher |
 | `quizContent/{quizId}` | The questions and options. **No correct answers.** | Students: only while the quiz is open. Teacher: all | Teacher |
 | `answerKeys/{quizId}` | Correct answers, accepted short answers, explanations, pass mark | **Teacher only** | Teacher |
@@ -157,14 +178,17 @@ Firebase console → **Build → Firestore Database**. If no database exists yet
 choose **Create database**, then **Production mode**, then a location near
 your school.
 
-### 3.3 Create the teacher account
+### 3.3 Create the Admin account (new sites only)
 
-1. **Authentication → Users → Add user.** Enter the teacher's email and a strong password. Passwords are never stored in the website code.
+Upgrading a site that already has a teacher account? Skip this: see section 11.
+
+1. **Authentication → Users → Add user.** Enter the Admin's real email and a strong password. Passwords are never stored in the website code.
 2. Copy the new user's **User UID**.
-3. **Firestore Database → Data → Start collection.** Collection ID: `teachers`. Document ID: *paste the UID*. Add a field `email` (string) with the teacher's email, then **Save**.
+3. **Firestore Database → Data → Start collection.** Collection ID: `teachers`. Document ID: *paste the UID*. Add a field `email` (string) with the email, then **Save**.
+4. Sign in to `/dashboard.html` with that email. The page asks for your name and offers **Make this account the Admin**. Press it. This works **only once**: after it, no other account can become Admin.
 
-That document is what makes an account a teacher. To add another teacher,
-repeat these steps. To remove one, delete their `teachers` document.
+All other staff are added from the dashboard's **Add teacher** page. Never add
+more `teachers` documents by hand.
 
 Tip: if you sign in to the dashboard before creating the document, the
 **Access denied** screen shows the UID you need to copy.
@@ -236,10 +260,11 @@ JavaScript modules on `file://` pages.
 
 ### 3.6 First use
 
-1. Open `/dashboard.html` and sign in as the teacher.
+1. Open `/dashboard.html` and sign in as the Admin.
 2. **School settings**: add your grades, and the sections of each grade (sections can have names like *Mount Everest*). Set the default pass mark, and optionally the number of students in each section. That number is the highest roll number students of the section can enter (40 allows 1 to 40), and it also shows how many students have not submitted. Leave it empty for no limit.
 3. **Quizzes**: choose your question-bank files, pick the grade for each lesson, choose separate quizzes or a merged quiz, tick **Open the new quizzes for students now**, and press **Add**.
-4. Give students the site address.
+4. **Add teacher**: create an account for each teacher and tick their grades and sections.
+5. Give students the site address, and each teacher their username and password (privately).
 
 ---
 
@@ -377,7 +402,7 @@ and different spellings of one student's name are shown together.
 | **Quiz report** (one attempt) | Result page → Print, or the row menu | Student (name, roll, grade, section), then the quiz summary (marks obtained, total, percentage, status, submitted), then each question: question, student's answer and correct answer side by side, marks awarded / maximum with ✓ or ✗. |
 | **Results by student** | Results → Print | Per student: overall performance, then a table of their quizzes (submitted, marks, %, status). No answers. A student with one attempt gets the quiz summary instead. |
 | **Answer sheets by student** | Results → Print | As above, followed by every quiz's questions and answers. Each student starts on a new page. |
-| **Student history** | Student history → Print (one student or all students shown), with or without answers | The same layout for the student's whole history. |
+| **Student record** | Student record → Print (one student or all students shown), with or without answers | The same layout for the student's whole history. |
 
 Pages are A4 with page numbers. Headings stay with the content under them,
 a question is never split across pages, and the answer heading repeats when
@@ -412,13 +437,13 @@ correct answers, activity log, short-answer overrides, and the per-record
 actions (grade/recalculate, accept/decline/pending, print, student history,
 allow retake, archive/restore, delete).
 
-**Student history** (its own tab): choose a grade and optionally a section,
+**Student record** (its own tab, formerly Student history): choose a grade and optionally a section,
 then search by name or roll number. The list shows each student's quizzes,
 counted quizzes, overall and average percentage. Open a student to see every
 attempt across all quizzes (previous attempts and, if ticked, archived
 records included), with status badges and "Not counted" notes. Print one
 student's history or the histories of all students shown, with or without
-answers. The "Student history" links on the Results tab, the result page and
+answers. The "Student record" links on the Results tab, the result page and
 the Analysis tab open this tab directly. Old `student.html?grade=…` links
 forward to it.
 
@@ -457,7 +482,7 @@ Firebase enforces on its servers. All of the following are enforced by
 - While the quiz is in progress, a student can change only answers and progress fields. They cannot change their name, roll number, grade, section or question order, answer questions that are not in their quiz, lower their warning counters, or set a review status.
 - **A submission must answer every question.**
 - After submitting, the student cannot change the attempt. The teacher can only set the review status (accept/decline/pending), copy the record (archive, restore, retake, backup import) and delete it; answers can never be edited.
-- Only accounts with a `teachers/{uid}` document can use the dashboard data.
+- Only accounts with an active `teachers/{uid}` document that has a role can use the dashboard data. Only the Admin can create or change these documents, and a teacher cannot change their own role or classes. See section 11 for the full list of what teachers can and cannot do.
 
 What a frontend-only app **cannot** do:
 
@@ -549,7 +574,7 @@ works only on localhost and is remembered for the browser tab.
 - Student homepage with remembered details, a quiz list for the student's grade and a status per quiz; switching students on shared devices.
 - Every question must be answered before submitting (page and security rules).
 - More screenshot and copying deterrents (hide on focus loss and screenshot keys, watermark, no selection), clearly described as deterrents.
-- "Classroom Quiz" links to the student homepage on every page; the teacher pages have a separate "Teacher dashboard" link.
+- The EES logo links to the student homepage on every page; the teacher pages have a separate "Teacher dashboard" link.
 - Unlimited quizzes with unique IDs; adding never replaces a quiz unless you choose *Replace*. (Version 1 used the lesson id as the quiz id, so lessons with the same id in different files replaced each other; that is why only three quizzes seemed to fit.)
 - JSON format 2.0 with `grade`; grade-based quiz visibility, enforced by the rules when a quiz is started.
 - Merging several lessons into one quiz, with lesson information kept on every question.
@@ -607,3 +632,85 @@ Version 1 links still work: `index.html`, `quiz.html`, `dashboard.html` and
 - **Micro-interactions:** buttons lift and press, arrows nudge on hover, menus and dropdowns pop in, dialogs rise in and tab panels fade in. All of it is turned off for people who choose reduced motion on their device.
 - **About page and credit:** `about.html` describes the site and credits the creator with a link to https://www.instagram.com/mainaliukesh.143783333/. The same credit is in the footer of the student pages and on the teacher sign-in page.
 - **Alignment:** every filter has a label above it, so fields and buttons in a row line up; rows that mix text and buttons are centred on one line.
+
+---
+
+## 11. Version 3.0: Admin and teacher roles
+
+### In short
+
+- There is **one Admin** with full access, and any number of **teachers**.
+- The Admin creates teacher accounts on the **Add teacher** page: name, username, first password, and the grades and sections the teacher works with. Teachers sign in with their **username** (the Admin can also use their email).
+- Teachers see only their own classes and manage only their own quizzes. For anything else (correct a student's name, print or export records, archive, delete) they send a **request** to the Admin from the **Requests** page, a record's **Ask the Admin…** menu, or a student's **Request a change** button.
+- Every student gets a **permanent student ID**. A name change or a move to another class keeps all their quiz records together, and the old name is remembered.
+- New pages: **Overview** (totals and recent activity), **Student record** (was Student history), **Requests**, **Add teacher** (Admin), **Help** (both roles, with keyboard shortcuts).
+- Wide tables (Results, Quizzes and others) have **‹ ›** buttons above them for scrolling sideways.
+
+Everything still runs on the **free Spark plan**: no Cloud Functions, no
+server, no new paid services.
+
+### Upgrade steps for an existing site (do them in this order)
+
+1. **Publish the new security rules.** Firebase console → **Firestore Database → Rules** → replace everything with the new `firestore.rules` → **Publish**. (Or `firebase deploy --only firestore:rules`.)
+2. **Upload the new website files** to GitHub as usual. Netlify publishes them by itself.
+3. **Check two Authentication settings** (Firebase console → **Authentication**):
+   - **Sign-in method**: *Email/Password* and *Anonymous* stay **enabled**.
+   - **Settings → User actions**: *Enable create (sign-up)* stays **ticked**. The Admin's browser uses it to create teacher accounts. An account made by anyone else this way gets no access, because it has no staff document.
+   - **Settings → Authorized domains**: your Netlify address is still in the list.
+4. **Become the Admin.** Open `/dashboard.html` and sign in with your existing teacher email and password. The page asks for your name and shows **Make this account the Admin**. Press it. This works only once and only for an account that existed before the upgrade. If you had more than one teacher account, the first one to press it becomes the Admin; the others see "Account not set up" and should get new accounts from **Add teacher**.
+5. **Link existing results to students (one time).** Go to **Student record**. A yellow box says *One-time setup*. Press **Link existing results**. It creates a student record for every grade + section + roll number found in your results and archive (using the newest name) and links their quizzes to it. Nothing is deleted. It is safe to press again.
+6. **Add your teachers** on **Add teacher**, and give each one their username and password privately.
+
+Your quizzes, results, archive, settings and quiz tabs are all kept. Quizzes
+made before the upgrade show **"Admin (older quiz)"** as their creator: only the
+Admin can edit them, and teachers still see their results for their own
+classes. They are **not** given to any teacher automatically; when deleting a
+teacher, the Admin can choose to move that teacher's quizzes to the Admin.
+
+### What each role can do
+
+| | Admin | Teacher |
+|---|---|---|
+| Overview | Whole school | Own quizzes and classes |
+| Results, Analysis, Student record | All grades and sections | Only assigned grades + sections |
+| Grade, accept / decline, allow retake | Yes | Yes, for their classes |
+| Create quizzes | For any grade, any or all sections | Only for their own grades and sections |
+| Edit, open/close, archive, delete a quiz | Any quiz | Only quizzes they created |
+| Rename or move a student, edit records | Yes | No (request) |
+| Print, export, archive, delete records | Yes | No (request) |
+| Archive & backup, School settings, Add teacher | Yes | Not shown, and blocked by the rules |
+| Requests | Approve, decline, do it now, or approve with a one-time permission (7 days, print or CSV only) | Send and follow their requests |
+| Help | Admin guide | Teacher guide |
+
+A teacher who tries a blocked action sees: *"You don't have permission to
+perform this operation. Please contact the Admin."*
+
+### How the security works (for the technically curious)
+
+- **Roles live in `teachers/{uid}`, which only the Admin can write.** A teacher cannot change their own role, classes or status. The rules check the role and status on every read and write. The page also removes Admin-only tabs for teachers, but that is only for convenience: typing an Admin page address or changing the code gives no extra access.
+- **Teacher queries must name a grade and a section** they are assigned to, so a teacher can never list another class's attempts, results or students. This was tested by calling Firestore directly from a teacher's browser.
+- **No passwords in Firestore and no password checks in JavaScript.** Teacher accounts are normal Firebase Authentication accounts. The username is only a pointer to that account's sign-in address (`usernames/{username}`), which never receives mail.
+- **No Admin SDK or Admin credentials in the website.** Without Cloud Functions, the browser cannot change another person's password or delete their sign-in account. So:
+  - **Create teacher**: the Admin's browser creates the account in a separate, temporary Firebase connection, so the Admin stays signed in.
+  - **Reset password**: a new sign-in account is created with the new password, and the teacher's profile (same teacher ID, same quizzes and classes) moves to it. The old sign-in stops working at once, because it no longer has a staff document.
+  - **Delete teacher** removes their staff document and username, so they can no longer sign in. Their quizzes and records are kept.
+  - The old, unused sign-in accounts stay listed in **Authentication → Users**. They have no access. You may delete them there if you want a tidy list.
+  - With Cloud Functions (needs the paid Blaze plan) these could be done in place. It is not needed.
+- **Students** cannot register a roll number that is already taken (an index document can be created only once), cannot use a different name than the registered one when they start a quiz, and cannot read other students.
+- **One-time permissions** (print / CSV) are shown only to that teacher and expire after 7 days. They only allow printing or downloading records the teacher can already see.
+- **Activity log**: creating, editing and deleting teachers, quiz changes, record archive/delete and request decisions are written to `activity`. Only the Admin can read it, and nobody can edit or delete it.
+
+### Keyboard shortcuts (dashboard)
+
+Press **G**, let go, then a letter: **O** Overview, **R** Results, **S** Student
+record, **A** Analysis, **Q** Quizzes, **E** Requests, **H** Help, and for the
+Admin **T** Add teacher, **B** Archive & backup, **C** School settings. Also
+**/** search, **[** and **]** previous and next page, **?** shortcuts list,
+**Esc** close. They never work while typing in a box, while a dialog is open,
+or with Ctrl, Alt or Cmd held, so they do not clash with browser shortcuts.
+Student quiz pages have no shortcuts.
+
+### Testing done for version 3.0
+
+- **123 security-rule tests** on the Firebase emulator: Admin setup only once, teachers cannot promote themselves or change their classes, teachers read only their classes, disabled teachers are blocked, students cannot duplicate a roll number or use another student's name, retakes, requests, activity log, archive is Admin only.
+- **Browser tests** of the real pages against the emulator: first Admin setup; creating teachers (and rejecting a duplicate username); teacher sign-in with a username; teacher sees no Admin tabs and cannot open them by address; teacher sees only their classes' results; direct Firestore calls from a teacher's browser are refused for other classes, teacher list, settings, the archive, renaming students and self-promotion; teacher quiz only for their sections; student registration, name filled in on another device, attempt linked to the student ID; one-time linking of old results; Admin rename and class move (name shown on the result page, old name kept); request approve and complete; scroll buttons; keyboard shortcuts; deactivated teacher blocked; password reset (old password refused, new one works); teacher retake; teacher has no Print, Archive or Delete on a record.

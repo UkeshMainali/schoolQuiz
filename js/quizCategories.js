@@ -1,8 +1,9 @@
 // Quiz tabs (categories) for the Quizzes page.
 //
-// Storage (no new collection, no security rule change needed):
-//   settings/quizCategories  { categories: [{ id, name }], updatedAt }   tab names, in display order
-//   quizzes/{id}.categoryId  the tab a quiz belongs to
+// Storage:
+//   settings/quizCategories       the Admin's tabs { categories: [{ id, name }], updatedAt }, in display order
+//   teacherSettings/{teacherId}   a teacher's own tabs (same shape)
+//   quizzes/{id}.categoryId       the tab a quiz belongs to (set by the quiz's owner)
 //
 // A quiz with no categoryId, or one whose tab was removed, has "No tab": it
 // shows under All quizzes, so quizzes created before tabs existed need no migration.
@@ -11,12 +12,13 @@
 // the name: quizzes and student records are never deleted.
 
 import { db, doc, getDoc, runTransaction, writeBatch, serverTimestamp } from "./firebase.js";
+import { isAdmin, session } from "./roles.js";
 
 export const ALL = "__all";
 export const UNCATEGORIZED = "";
 export const UNCATEGORIZED_NAME = "No tab"; // quizzes without a tab show only under All quizzes
 const MOVES_PER_BATCH = 400;
-const ref = () => doc(db, "settings", "quizCategories");
+const ref = () => (isAdmin() ? doc(db, "settings", "quizCategories") : doc(db, "teacherSettings", session.teacherId));
 
 const clean = (list) => (Array.isArray(list) ? list : [])
   .filter((c) => c && typeof c.id === "string" && c.id && typeof c.name === "string" && c.name.trim())

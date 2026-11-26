@@ -157,7 +157,11 @@ export function round(value, digits = 1) {
 /** Turns Firebase error codes into sentences a teacher or student can act on. */
 export function friendlyError(err) {
   const code = err?.code || "";
-  if (code.includes("permission-denied")) return "You do not have permission to do this.";
+  if (code.includes("permission-denied")) {
+    return typeof document !== "undefined" && document.body?.classList.contains("teacher")
+      ? "You don't have permission to perform this operation. Please contact the Admin."
+      : "You do not have permission to do this.";
+  }
   if (code.includes("unavailable") || code.includes("network-request-failed") || !navigator.onLine)
     return "Cannot reach the server. Please check the internet connection and try again.";
   if (code.includes("deadline-exceeded")) return "The server took too long to respond. Please try again.";
@@ -355,7 +359,7 @@ export function pluralize(n, word, plural = `${word}s`) {
   return `${n} ${n === 1 ? word : plural}`;
 }
 
-/** Link that opens one student's history (dashboard "Student history" tab). */
+/** Link that opens one student's record (dashboard "Student record" tab). */
 export const historyLink = (grade, section, roll) =>
   `dashboard.html#history=${[grade, section, roll].map(encodeURIComponent).join("|")}`;
 
@@ -375,6 +379,39 @@ if (typeof document !== "undefined") {
       if (over > 0) list.style.left = `${-over}px`;
     }
   }, true);
+}
+
+/**
+ * Small modal form. collect(root) returns the values, or null to keep the
+ * dialog open (it shows its own errors). Resolves with the values or null.
+ */
+export function formModal({ title, body, okText = "Save", danger = false, onOpen, collect }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
+    <form class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="fmTitle" novalidate>
+      <h2 id="fmTitle"></h2>
+      <div class="fm-body">${body}</div>
+      <div class="actions">
+        <button type="button" class="btn" data-fm-cancel>Cancel</button>
+        <button type="submit" class="btn ${danger ? "btn-danger-solid" : "btn-primary"}" data-fm-ok></button>
+      </div>
+    </form>`;
+  backdrop.querySelector("#fmTitle").textContent = title;
+  backdrop.querySelector("[data-fm-ok]").textContent = okText;
+  document.body.appendChild(backdrop);
+  onOpen?.(backdrop);
+  return new Promise((resolve) => {
+    const done = (v) => { document.removeEventListener("keydown", onKey); backdrop.remove(); resolve(v); };
+    const onKey = (e) => { if (e.key === "Escape" && !document.querySelector(".cselect.is-open")) done(null); };
+    document.addEventListener("keydown", onKey);
+    backdrop.querySelector("[data-fm-cancel]").addEventListener("click", () => done(null));
+    backdrop.querySelector("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const v = collect(backdrop);
+      if (v) done(v);
+    });
+  });
 }
 
 // ------------------------------------------------------------- skeletons

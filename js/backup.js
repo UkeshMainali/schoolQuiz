@@ -70,7 +70,7 @@ export function parseBackup(text) {
   try { data = JSON.parse(text.replace(/^﻿/, "")); }
   catch (e) { return { error: `This is not a valid JSON file (${e.message}).` }; }
   if (!data || data.format !== BACKUP_FORMAT) {
-    return { error: "This file is not a Classroom Quiz results backup. (Question banks are imported on the Quizzes tab.)" };
+    return { error: "This file is not an EES results backup. (Question banks are imported on the Quizzes tab.)" };
   }
   const major = String(data.schemaVersion || "").split(".")[0];
   if (major !== "2") return { error: `Backup version "${data.schemaVersion}" is not supported by this version of the app.` };
@@ -101,7 +101,8 @@ export function parseBackup(text) {
 //   Detailed - one row per question per attempt: the summary columns repeated
 //              on every row, then the question, both answers and the marks.
 //              "Attempt ID" ties the rows of one submission together, and
-//              "Student ID" (grade-section-roll) ties a student's attempts together.
+//              "Student ID" (the permanent student id; grade-section-roll for
+//              records not linked to a student yet) ties a student's attempts together.
 
 const csvDate = (value) => {
   const d = toDate(value);
@@ -109,7 +110,7 @@ const csvDate = (value) => {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 };
-const studentId = (r) => `${r.grade}-${r.section}-${r.rollNo}`;
+const studentId = (r) => r.studentId || `${r.grade}-${r.section}-${r.rollNo}`;
 const summaryColumns = ["Student ID", "Student name", "Roll no.", "Grade", "Section", "Quiz ID", "Quiz", "Attempt ID", "Submitted at",
   "Marks obtained", "Total marks", "Percentage", "Result", "Grading status", "Review status"];
 const summaryCells = (r) => [
