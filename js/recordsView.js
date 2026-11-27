@@ -12,7 +12,7 @@
 
 import {
   queryAttempts, queryAllAttempts, fetchResults, countAttempts, setReviewStatus, deleteRecords,
-  archiveRecords, restoreRecords, isSplitScope
+  archiveRecords, restoreRecords, isSplitScope, fetchRecordsByIds, idInScope
 } from "./records.js";
 import { isAdmin, myGrades, mySections, NO_PERMISSION } from "./roles.js";
 import { openRequestDialog } from "./requests.js";
@@ -283,9 +283,89 @@ export class RecordsView {
     }
   }
 
+  /** Opens a grade / section (and optionally a status filter), e.g. from the Overview. */
+  openScope({ grade = "", section = "", status = "" } = {}) {
+    this.scope.grade = grade;
+    this.scope.section = section;
+    const q = teacher.quizzes.get(this.scope.quizId);
+    if (q && q.grade && grade && q.grade !== grade) this.scope.quizId = "";
+    ["search", "from", "to"].forEach((f) => { this.$(`[data-filter="${f}"]`).value = ""; });
+    this.$('[data-filter="status"]').value = status;
+    this.saveScope();
+    this.load();
+  }
+
+  // ----------------------------------------------------------- live updates
+
+  /**
+   * Called when records changed elsewhere (a student submitted, someone else
+   * graded). ids: the changed attempt ids, or null for "anything may have
+   * changed". Records on screen are re-read one by one; a new record in this
+   * scope re-reads the current page. No loading screen, and the page,
+   * filters, sorting and selection stay as they are.
+   */
+  async liveUpdate(ids) {
+    if (!this.loaded || this.isArchive) return;
+    const list = ids ? [...ids].filter((id) => idInScope(id, this.scope)) : null;
+    if (list && !list.length) return;
+    if (this.liveBusy) { this.liveAgain = list && this.liveAgain !== null ? [...(this.liveAgain || []), ...list] : null; return; }
+    this.liveBusy = true;
+    try {
+      const onScreen = new Set(this.items.map((a) => a.id));
+      if (list && list.every((id) => onScreen.has(id))) await this.patchRecords(list);
+      else await this.quietReload();
+    } catch (err) {
+      console.warn("Live update failed", err);
+    } finally {
+      this.liveBusy = false;
+      const again = this.liveAgain;
+      this.liveAgain = undefined;
+      if (again !== undefined) this.liveUpdate(again ? new Set(again) : null);
+    }
+  }
+
+  /** Re-reads a few records that are on screen (2 reads each). */
+  async patchRecords(ids) {
+    const seq = this.seq;
+    const fresh = await fetchRecordsByIds(ids);
+    if (seq !== this.seq) return;
+    const byId = new Map(fresh.map((r) => [r.id, r]));
+    this.items = this.items.filter((a) => !ids.includes(a.id) || byId.has(a.id)).map((a) => byId.get(a.id)?.attempt || a);
+    ids.forEach((id) => {
+      const r = byId.get(id);
+      if (r?.result) this.results.set(id, r.result); else this.results.delete(id);
+      if (!r) { this.selected.delete(id); this.known.delete(id); }
+    });
+    this.buildRows();
+    this.render();
+    this.$(".data-info").textContent = this.stamp();
+  }
+
+  /** Same as load(), without a loading screen, keeping the page, filters and selection. */
+  async quietReload() {
+    const seq = ++this.seq;
+    const total = await countAttempts(this.source, this.scope);
+    if (seq !== this.seq) return;
+    if (this.full) {
+      const all = await queryAllAttempts(this.source, this.scope, { max: MAX_ALL });
+      if (seq !== this.seq) return;
+      Object.assign(this, { items: all.items, results: all.results, capped: all.capped, total: all.capped ? total : all.items.length });
+    } else {
+      this.total = total;
+      await this.loadPage(this.page, seq, { quiet: true });
+      if (seq !== this.seq) return;
+    }
+    this.buildRows();
+    const known = new Set(this.items.map((a) => a.id));
+    if (this.full) [...this.selected].forEach((id) => { if (!known.has(id)) this.selected.delete(id); });
+    this.$(".data-info").textContent = this.stamp();
+    this.loadCounts();
+    this.render();
+  }
+
   /** Reads page n (0-based) from Firestore: 50 attempts and their results. */
-  async loadPage(n, seq = this.seq) {
-    this.showLoading();
+  async loadPage(n, seq = this.seq, { quiet = false } = {}) {
+    if (!quiet) this.showLoading();
     const page = await queryAttempts(this.source, this.scope, { pageSize: PAGE_SIZE, cursor: this.pageStarts[n] });
     const results = await fetchResults(this.source, page.items.map((a) => a.id));
     if (seq !== this.seq) return;

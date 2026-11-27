@@ -18,7 +18,7 @@ import { pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage, skeleton } from "./utilities.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import { session, isAdmin, ownsQuiz, myGrades, mySections } from "./roles.js";
-import { countAttempts } from "./records.js";
+import { countAttempts, attemptIdParts } from "./records.js";
 import { logActivity } from "./auth.js";
 import {
   ALL, UNCATEGORIZED, addCategory, renameCategory, deleteCategory, moveQuizzes,
@@ -121,7 +121,13 @@ export class QuizAdmin {
       <div data-q="key"></div>`;
     this.$ = (s) => this.el.querySelector(`[data-q="${s}"]`);
     this.bind();
-    onTeacherChange(() => { if (this.shown) { this.fillGradeFilter(); this.renderList(); if (this.imp) this.renderImport(); } });
+    onTeacherChange((what) => {
+      if (what === "students" || !this.shown) return;
+      this.fillGradeFilter();
+      this.renderList();
+      // Keep an import the user is working on as it is; only settings change its choices.
+      if (this.imp && what === "settings") this.renderImport();
+    });
   }
 
   show() {
@@ -429,6 +435,13 @@ export class QuizAdmin {
     all.checked = !!list.length && selShown === list.length;
     all.indeterminate = selShown > 0 && selShown < list.length;
     this.renderSelection();
+  }
+
+  /** Live update: students started or submitted; recount those quizzes' attempts. */
+  liveUpdate(ids) {
+    let changed = false;
+    ids.forEach((id) => { const p = attemptIdParts(id); if (p && this.attemptCounts.delete(p.quizId)) changed = true; });
+    if (changed && this.shown) this.renderList();
   }
 
   /** Counts attempts for the quizzes on screen (1 small count query each; cached). */

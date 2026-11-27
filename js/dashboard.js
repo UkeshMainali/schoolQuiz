@@ -12,12 +12,13 @@ import { auth } from "./firebase.js";
 import { clearKeyCache } from "./grading.js";
 import { friendlyError, showNotice, hideNotice, storage, skeleton, formModal } from "./utilities.js";
 import { loadTeacherData, appNotice } from "./teacherState.js";
-import { session, isAdmin, classesLabel } from "./roles.js";
+import { session, isAdmin } from "./roles.js";
 import { RecordsView } from "./recordsView.js";
 import { AnalyticsView } from "./analyticsView.js";
 import { QuizAdmin } from "./quizAdmin.js";
 import { StudentRecordView, parseHistoryHash } from "./studentRecord.js";
-import { RequestsView, requestsState, loadRequests, pendingCount } from "./requests.js";
+import { RequestsView, requestsState, watchRequests, pendingCount } from "./requests.js";
+import { startLive, onLive, liveBadgeHtml } from "./live.js";
 import { OverviewView } from "./overview.js";
 import { HelpView } from "./help.js";
 import { initScrollButtons } from "./scrollButtons.js";
@@ -202,13 +203,13 @@ async function start() {
   if (!admin) {
     // Remove Admin-only parts from the page entirely (not just hidden).
     document.querySelectorAll("[data-admin-only]").forEach((el) => el.remove());
-    PAGES.overview[1] = `Your quizzes and classes: ${classesLabel(session.classes)}.`;
+    PAGES.overview[1] = "";
     PAGES.requests[1] = "Ask the Admin for things only the Admin can do, and follow your requests.";
     PAGES.results[1] = "Grade and review submissions from your classes.";
     PAGES.history[1] = "Students of your classes and every quiz they have taken.";
     PAGES.quizzes[1] = "Add quizzes for your classes and manage the quizzes you created.";
   } else {
-    PAGES.overview[1] = "The whole school at a glance.";
+    PAGES.overview[1] = "";
     PAGES.requests[1] = "Requests from teachers for things only the Admin can do.";
   }
 
@@ -223,7 +224,11 @@ async function start() {
     appNotice(`Could not load quizzes and settings. ${friendlyError(err)} Press Refresh on a tab to try again.`, "error");
   }
 
-  parts.overview = new OverviewView($("tab-overview"), { openTab });
+  parts.overview = new OverviewView($("tab-overview"), {
+    openTab,
+    openResults: (scope) => { stale.results = false; openTab("results"); parts.results.openScope(scope); },
+    openStudents: (scope) => { openTab("history", { skipShow: true }); parts.history.openScope(scope); }
+  });
   parts.results = new RecordsView($("tab-results"), { source: "active" });
   parts.history = new StudentRecordView($("tab-history"));
   parts.analysis = new AnalyticsView($("tab-analysis"));
@@ -262,7 +267,11 @@ async function start() {
 
   // Pending-requests badge for the Admin.
   requestsState.listeners.add(updateBadge);
-  loadRequests().catch((err) => console.warn("Requests not loaded", err));
+  watchRequests().catch((err) => console.warn("Requests not loaded", err));
+
+  // Live updates: listeners report changed records; the visible page re-reads only what it shows.
+  startLive();
+  onLive(onLiveEvent);
 
   document.querySelectorAll(".tab").forEach((tab) => tab.addEventListener("click", () => openTab(tab.dataset.tab)));
   window.addEventListener("hashchange", openFromHash);
@@ -273,6 +282,51 @@ async function start() {
     openHelp: (section) => { openTab("help"); parts.help.jump(section); }
   });
   if (!openFromHash()) openTab(storage.get(TAB_KEY) || "overview");
+}
+
+// ------------------------------------------------------------ live updates
+
+const livePending = new Set();
+let liveTimer = null;
+function onLiveEvent(e) {
+  if (e.type === "status") { paintLiveBadge(); return; }
+  if (e.type === "progress") { if (currentTab() === "overview") parts.overview.liveProgress(); return; }
+  if (e.type !== "records") return;
+  e.ids.forEach((id) => livePending.add(id));
+  scheduleLiveFlush(1500);
+}
+
+function scheduleLiveFlush(ms) {
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(flushLive, ms);
+}
+
+/** Something is open that a re-render would close (a dialog, a menu, a dropdown). */
+function busy() {
+  return !!document.querySelector(".modal-backdrop, details.menu[open], .cselect.is-open");
+}
+
+function flushLive() {
+  if (!livePending.size) return;
+  if (document.hidden) return; // applied when the page is shown again
+  if (busy()) { scheduleLiveFlush(3000); return; }
+  const ids = new Set(livePending);
+  livePending.clear();
+  dataChanged();
+  const tab = currentTab();
+  // Records pages that are not visible re-read when they are opened next.
+  if (tab === "results") parts.results.liveUpdate(ids); else if (parts.results.loaded) stale.results = true;
+  if (tab === "overview") parts.overview.liveUpdate(ids);
+  if (tab === "history") parts.history.liveUpdate(ids);
+  if (tab === "analysis") parts.analysis.liveUpdate();
+  if (tab === "quizzes") parts.quizzes.liveUpdate?.(ids);
+}
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden && livePending.size) scheduleLiveFlush(300); });
+
+function paintLiveBadge() {
+  const el = $("liveBadge");
+  if (el) el.innerHTML = liveBadgeHtml();
 }
 
 function updateBadge() {
@@ -323,7 +377,11 @@ function openTab(name, { skipShow = false } = {}) {
   currentTabName = name;
   storage.set(TAB_KEY, name);
   if (name === "overview") parts.overview.show();
-  if (name === "results" && stale.results) { stale.results = false; parts.results.load(); }
+  if (name === "results" && stale.results) {
+    stale.results = false;
+    // After live changes keep the page, filters and selection; otherwise start over.
+    if (parts.results.loaded) parts.results.liveUpdate(null); else parts.results.load();
+  }
   if (name === "archive" && stale.archive) { stale.archive = false; parts.archive.load(); }
   if (name === "history" && !skipShow) parts.history.show();
   if (name === "analysis") parts.analysis.show();

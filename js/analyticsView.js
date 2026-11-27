@@ -98,6 +98,33 @@ export class AnalyticsView {
     }
   }
 
+  /**
+   * Live update while Analysis is open. Analysis reads every record of the
+   * scope, so it re-reads at most once a minute, without a loading screen.
+   */
+  liveUpdate() {
+    this.cache.clear();
+    const wait = 60000 - (Date.now() - (this.liveAt || 0));
+    clearTimeout(this.liveTimer);
+    this.liveTimer = setTimeout(() => this.quietLoad(), Math.max(0, wait));
+  }
+
+  async quietLoad() {
+    if (this.el.closest(".tab-panel")?.hidden || !this.rows) return;
+    this.liveAt = Date.now();
+    const scope = this.scope();
+    try {
+      const { items, results, capped } = await queryAllAttempts("active", scope, { max: MAX_RECORDS });
+      if (JSON.stringify(scope) !== JSON.stringify(this.scope())) return; // filters changed meanwhile
+      this.capped = capped;
+      this.rows = items.map((a) => toRow(a, results.get(a.id) || null));
+      this.cache.set(JSON.stringify(scope), this.rows);
+      this.render();
+    } catch (err) {
+      console.warn("Live analysis update failed", err);
+    }
+  }
+
   /** Called after grading, archiving etc. so the next view re-reads data. */
   invalidate() { this.cache.clear(); }
 

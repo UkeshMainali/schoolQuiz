@@ -10,7 +10,7 @@
 // is kept as history, and every page shows the CURRENT name from here.
 
 import {
-  db, doc, getDoc, getDocs, collection, query, where, writeBatch, serverTimestamp, auth
+  db, doc, getDoc, getDocs, collection, query, where, writeBatch, serverTimestamp, auth, onSnapshot
 } from "./firebase.js";
 import { isAdmin, classPairs, session } from "./roles.js";
 
@@ -37,6 +37,38 @@ export async function loadStudents() {
     : await Promise.all(pairs.map((p) => getDocs(query(collection(db, "students"), where("grade", "==", p.grade), where("section", "==", p.section)))));
   snaps.forEach((snap) => snap.docs.forEach((d) => put({ id: d.id, ...d.data() })));
   directory.loaded = true;
+}
+
+/**
+ * Same as loadStudents, but keeps listening: a student who registers, or a
+ * name the Admin corrects, shows without reloading. Resolves after the first
+ * snapshot of every query; onChange() runs for each later change.
+ */
+export function watchStudents(onChange = () => {}) {
+  const pairs = classPairs({});
+  const queries = pairs === null
+    ? [collection(db, "students")]
+    : pairs.map((p) => query(collection(db, "students"), where("grade", "==", p.grade), where("section", "==", p.section)));
+  const parts = queries.map(() => new Map());
+  const rebuild = () => {
+    directory.byId.clear();
+    directory.byKey.clear();
+    parts.forEach((m) => m.forEach((s) => put(s)));
+    directory.loaded = true;
+  };
+  if (!queries.length) { rebuild(); return Promise.resolve(); }
+  return new Promise((resolve, reject) => {
+    let waiting = queries.length;
+    queries.forEach((q, i) => {
+      let first = true;
+      onSnapshot(q, (snap) => {
+        parts[i] = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...d.data() }]));
+        rebuild();
+        if (first) { first = false; if (--waiting === 0) resolve(); return; }
+        onChange();
+      }, (err) => { if (first) { first = false; reject(err); } else console.warn("Live students stopped", err); });
+    });
+  });
 }
 
 /** The registered student an attempt belongs to (by id, else by grade/section/roll), or null. */

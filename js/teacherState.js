@@ -1,11 +1,12 @@
-// Shared state for the teacher pages: school settings and the quiz list.
-// Loaded once per page and refreshed only when the teacher changes something
-// or presses Refresh, to avoid repeated Firestore reads.
+// Shared state for the teacher pages: school settings, quiz tabs, the quiz
+// list and the student directory. They are kept up to date by Firestore
+// listeners (live updates): the first snapshot is the normal load, and after
+// that only changed documents are read.
 
-import { db, collection, getDocs } from "./firebase.js";
-import { loadSettings, showNotice, hideNotice } from "./utilities.js";
-import { loadCategories } from "./quizCategories.js";
-import { loadStudents } from "./students.js";
+import { db, collection, getDocs, doc, onSnapshot } from "./firebase.js";
+import { loadSettings, normalizeSettings, showNotice, hideNotice } from "./utilities.js";
+import { loadCategories, categoriesRef, cleanCategories } from "./quizCategories.js";
+import { loadStudents, watchStudents } from "./students.js";
 import { quizForMyClasses } from "./roles.js";
 
 export const teacher = {
@@ -16,8 +17,61 @@ export const teacher = {
 };
 
 export async function loadTeacherData() {
-  const [settings] = await Promise.all([loadSettings(), reloadQuizzes(), reloadCategories(), reloadStudents()]);
+  const [settings] = await Promise.all([loadSettings(), watchQuizzes(), reloadCategories(), watchStudentDirectory()]);
   teacher.settings = settings;
+  watchSettings();
+}
+
+let watching = false;
+/** Live quiz list. Resolves after the first snapshot; falls back to one read if listening fails. */
+function watchQuizzes() {
+  return new Promise((resolve) => {
+    let first = true;
+    onSnapshot(collection(db, "quizzes"), (snap) => {
+      teacher.quizzes = new Map(snap.docs.map((d) => quizEntry(d)));
+      if (first) { first = false; resolve(); }
+      notify("quizzes");
+    }, (err) => {
+      console.warn("Live quiz list unavailable", err);
+      if (first) { first = false; reloadQuizzes().catch(() => {}).finally(resolve); }
+    });
+  });
+}
+
+/** Live student directory (names shown everywhere). */
+function watchStudentDirectory() {
+  return watchStudents(() => notify("students")).catch(async (err) => {
+    console.warn("Live students unavailable", err);
+    await reloadStudents();
+  });
+}
+
+/** School settings and quiz tabs changed by the Admin (or in another tab) show at once. */
+function watchSettings() {
+  if (watching) return;
+  watching = true;
+  let firstS = true, firstC = true;
+  onSnapshot(doc(db, "settings", "school"), (snap) => {
+    if (firstS) { firstS = false; return; } // the same data loadSettings() just read
+    if (snap.metadata.hasPendingWrites) return;
+    teacher.settings = normalizeSettings(snap.exists() ? snap.data() : {});
+    notify("settings");
+  }, (err) => console.warn("Live settings unavailable", err));
+  onSnapshot(categoriesRef(), (snap) => {
+    if (firstC) { firstC = false; return; }
+    if (snap.metadata.hasPendingWrites) return;
+    teacher.categories = cleanCategories(snap.exists() ? snap.data().categories : []);
+    notify("categories");
+  }, (err) => console.warn("Live quiz tabs unavailable", err));
+}
+
+function quizEntry(d) {
+  const data = d.data();
+  // Older quizzes keep their questions inline; drop them from memory here.
+  const { questions, ...meta } = data;
+  if (Array.isArray(questions) && meta.questionCount === undefined) meta.questionCount = questions.length;
+  if (Array.isArray(questions)) meta.legacyInline = true;
+  return [d.id, { id: d.id, ...meta }];
 }
 
 /** Student names and ids (shown instead of the names typed on old quizzes). */
@@ -48,14 +102,7 @@ export function setCategories(list) {
 /** Reads the quiz list documents (small: questions live in quizContent). */
 export async function reloadQuizzes() {
   const snap = await getDocs(collection(db, "quizzes"));
-  teacher.quizzes = new Map(snap.docs.map((d) => {
-    const data = d.data();
-    // Older quizzes keep their questions inline; drop them from memory here.
-    const { questions, ...meta } = data;
-    if (Array.isArray(questions) && meta.questionCount === undefined) meta.questionCount = questions.length;
-    if (Array.isArray(questions)) meta.legacyInline = true;
-    return [d.id, { id: d.id, ...meta }];
-  }));
+  teacher.quizzes = new Map(snap.docs.map((d) => quizEntry(d)));
   notify("quizzes");
 }
 

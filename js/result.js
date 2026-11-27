@@ -5,8 +5,9 @@
 // archive / restore and delete for the Admin only (teachers send a request).
 // firestore.rules decide what can really be read or changed.
 
-import { db, doc, getDoc, setDoc } from "./firebase.js";
+import { db, doc, getDoc, setDoc, onSnapshot } from "./firebase.js";
 import { watchStaff } from "./auth.js";
+import { signalClasses } from "./live.js";
 import { isAdmin, NO_PERMISSION } from "./roles.js";
 import { lookupStudent } from "./students.js";
 import { openRequestDialog } from "./requests.js";
@@ -99,12 +100,47 @@ async function load() {
     result = rSnap.exists() ? { id: rSnap.id, ...rSnap.data() } : null;
     const qSnap = await getDoc(doc(db, "quizzes", attempt.quizId));
     quiz = qSnap.exists() ? { id: qSnap.id, ...qSnap.data() } : null;
-    [key, student] = await Promise.all([loadAnswerKey(attempt.quizId, { refresh: true }), currentStudent(attempt)]);
+    // A missing or unreadable answer key (e.g. the quiz was deleted) must not
+    // hide the record: the saved result still holds every answer.
+    [key, student] = await Promise.all([
+      loadAnswerKey(attempt.quizId, { refresh: true }).catch((err) => { console.warn("Answer key not readable", err); return null; }),
+      currentStudent(attempt)
+    ]);
     render();
+    watchRecord(cols);
   } catch (err) {
     console.error(err);
     fail(`Could not load this record. ${friendlyError(err)}`);
   }
+}
+
+/**
+ * Live updates: when the student submits, or someone else grades or reviews
+ * this record, the page updates by itself (2 documents are watched).
+ */
+let watching = false;
+function watchRecord(cols) {
+  if (watching) return;
+  watching = true;
+  let firstA = true, firstR = true;
+  const busy = () => document.activeElement?.classList.contains("override") || document.querySelector(".modal-backdrop, details.menu[open]");
+  const rerender = () => {
+    if (busy()) { setTimeout(rerender, 2000); return; }
+    render();
+  };
+  onSnapshot(doc(db, cols.attempts, attemptId), (snap) => {
+    if (firstA) { firstA = false; return; }
+    if (snap.metadata.hasPendingWrites) return;
+    if (!snap.exists()) { note(isArchive ? "This record was restored or deleted." : "This record was archived, deleted or moved for a retake.", "warning"); return; }
+    attempt = { id: snap.id, ...snap.data() };
+    rerender();
+  }, (err) => console.warn("Live record updates stopped", err));
+  onSnapshot(doc(db, cols.results, attemptId), (snap) => {
+    if (firstR) { firstR = false; return; }
+    if (snap.metadata.hasPendingWrites) return;
+    result = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    rerender();
+  }, (err) => console.warn("Live result updates stopped", err));
 }
 
 function fail(message) {
@@ -141,7 +177,9 @@ function render() {
   if (review) badges.push(REVIEW[review]);
   $("statusBadge").innerHTML = badges.join("");
 
-  if (!key) note("The answer key for this quiz is missing, so it cannot be graded. Add the question bank again on the Quizzes tab.", "warning");
+  if (!key) note(result?.details?.length
+    ? "The answer key of this quiz is not available (the quiz may have been deleted). The answers saved when it was graded are shown."
+    : "The answer key for this quiz is missing, so it cannot be graded. Add the question bank again on the Quizzes tab.", "warning");
   else if (!submitted) note("This student has not submitted yet. The marks below are a preview of the answers saved so far.", "info");
   else if (review === "declined") note(`This submission was declined${attempt.reviewedBy ? ` by ${attempt.reviewedBy}` : ""}. It is not counted in averages or analysis.`, "warning");
   else if (stale || missingResult) note(`${result ? "The answer key or pass mark changed after this was graded." : "This submission has not been graded yet."} The values below are calculated now; press ${result ? "Recalculate" : "Grade"} to save them.`, "warning");
@@ -216,6 +254,7 @@ function duration(start, end) {
 }
 
 function renderAnswers(g, canOverride) {
+  if (!g && result?.details?.length) { renderSavedAnswers(result); return; }
   if (!g) { $("answersBody").innerHTML = '<tr><td colspan="6" class="empty">No answer key available.</td></tr>'; return; }
   const keyById = new Map(key.questions.map((q) => [q.id, q]));
   const statusBadge = {
@@ -253,6 +292,19 @@ function renderAnswers(g, canOverride) {
   document.querySelectorAll(".override").forEach((sel) => sel.addEventListener("change", () => saveOverride(sel.dataset.q, sel.value)));
 }
 
+/** The answers as saved when the test was graded (used when the answer key is gone). */
+function renderSavedAnswers(r) {
+  const badge = { correct: '<span class="badge badge-success">Correct</span>', incorrect: '<span class="badge badge-danger">Incorrect</span>', unanswered: '<span class="badge">Unanswered</span>' };
+  $("answersBody").innerHTML = r.details.map((d) => `<tr>
+    <td>${escapeHtml(d.position)}</td>
+    <td>${escapeHtml(d.text || d.questionId)}</td>
+    <td>${d.given === null ? '<span class="muted">—</span>' : escapeHtml(d.type === "short_answer" ? d.givenText : `${d.given}. ${d.givenText}`)}</td>
+    <td>${escapeHtml(d.correctAnswer)}</td>
+    <td>${badge[d.status] || ""}${d.overridden ? ' <span class="small muted">(changed by teacher)</span>' : ""}</td>
+    <td class="num">${escapeHtml(d.marksAwarded)} / ${escapeHtml(d.marks)}</td>
+  </tr>`).join("");
+}
+
 function renderActivity() {
   const events = Array.isArray(attempt.events) ? attempt.events : [];
   const flagged = (attempt.focusLossCount || 0) >= 3;
@@ -270,6 +322,7 @@ function renderActivity() {
 async function saveResult(overrides) {
   const data = buildResultDoc(attempt, key, overrides, settings.passPercent);
   await setDoc(doc(db, "results", attempt.id), data);
+  signalClasses([attempt], "graded");
   result = { id: attempt.id, ...data, gradedAt: new Date() };
 }
 

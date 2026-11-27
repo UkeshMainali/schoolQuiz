@@ -18,15 +18,15 @@ export const ALL = "__all";
 export const UNCATEGORIZED = "";
 export const UNCATEGORIZED_NAME = "No tab"; // quizzes without a tab show only under All quizzes
 const MOVES_PER_BATCH = 400;
-const ref = () => (isAdmin() ? doc(db, "settings", "quizCategories") : doc(db, "teacherSettings", session.teacherId));
+export const categoriesRef = () => (isAdmin() ? doc(db, "settings", "quizCategories") : doc(db, "teacherSettings", session.teacherId));
 
-const clean = (list) => (Array.isArray(list) ? list : [])
+export const cleanCategories = (list) => (Array.isArray(list) ? list : [])
   .filter((c) => c && typeof c.id === "string" && c.id && typeof c.name === "string" && c.name.trim())
   .map((c) => ({ id: c.id, name: c.name.trim() }));
 
 export async function loadCategories() {
-  const snap = await getDoc(ref());
-  return clean(snap.exists() ? snap.data().categories : []);
+  const snap = await getDoc(categoriesRef());
+  return cleanCategories(snap.exists() ? snap.data().categories : []);
 }
 
 /** Error message for a tab name, or "". */
@@ -43,9 +43,9 @@ export function nameProblem(name, categories, exceptId = null) {
 /** Applies change(list) to the saved list inside a transaction; returns the new list. */
 async function update(change) {
   return runTransaction(db, async (tx) => {
-    const snap = await tx.get(ref());
-    const next = change(clean(snap.exists() ? snap.data().categories : []));
-    tx.set(ref(), { categories: next, updatedAt: serverTimestamp() });
+    const snap = await tx.get(categoriesRef());
+    const next = change(cleanCategories(snap.exists() ? snap.data().categories : []));
+    tx.set(categoriesRef(), { categories: next, updatedAt: serverTimestamp() });
     return next;
   });
 }

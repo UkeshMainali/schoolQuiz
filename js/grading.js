@@ -5,6 +5,7 @@ import {
   db, doc, getDoc, writeBatch, serverTimestamp, auth
 } from "./firebase.js";
 import { round } from "./utilities.js";
+import { signalClasses } from "./live.js";
 
 const keyCache = new Map();
 
@@ -164,6 +165,7 @@ export async function gradeAttempts(attempts, existingResults, defaultPassPercen
     const batch = writeBatch(db);
     chunk.forEach(({ attempt, data }) => batch.set(doc(db, "results", attempt.id), data));
     await batch.commit();
+    signalClasses(chunk.map(({ attempt }) => attempt), "graded");
     chunk.forEach(({ attempt, data }) => written.set(attempt.id, { ...data, id: attempt.id, gradedAt: new Date() }));
     onProgress?.(Math.min(i + chunk.length, toWrite.length), toWrite.length);
   }

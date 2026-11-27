@@ -12,6 +12,7 @@ frameworks. Firebase is loaded from Google's CDN (SDK version 12.19.0, set in
 - **The Admin** (one account) signs in to `dashboard.html` and can do everything: add teacher accounts, school settings, all quizzes and records, print, export, archive, back up, and edit students.
 - **Teachers** sign in with the username and password the Admin gave them. They see only the classes (grade + section) the Admin assigned to them, manage only their own quizzes, and ask the Admin for anything else (for example correcting a student's name).
 
+**Version 3.1** (November 2026): teachers grade and open answer sheets themselves, a new Overview page, help search, and live updates. See [section 12](#12-version-31-teacher-grading-new-overview-help-search-live-updates).
 **Version 3.0** (November 2026) adds the Admin and teacher roles.
 **If you are upgrading an existing site, follow [section 11](#11-version-30-admin-and-teacher-roles) first.**
 Version 2.0 changes are in [section 10](#10-version-20-changes-and-upgrading).
@@ -43,8 +44,9 @@ classroom-quiz/
 │   ├── students.js       Student IDs: lookup, self-registration, edit/move/delete (Admin), one-time linking of old results
 │   ├── studentRecord.js  Student record tab: search, filters, one student's details and quizzes, Admin actions
 │   ├── requests.js       Requests tab: teachers ask the Admin; the Admin approves, declines, does it, or grants a one-time permission
-│   ├── overview.js       Overview tab: totals, recent quizzes, recent submissions, recent activity
-│   ├── help.js           Help tab: guides for the Admin and for teachers, keyboard shortcuts
+│   ├── overview.js       Overview tab: needs-attention list, key figures, a card per grade with each section, recent submissions, quizzes, activity
+│   ├── live.js           Live updates: small Firestore listeners that tell the open page what changed
+│   ├── help.js           Help tab: guides for the Admin and for teachers, search with suggestions, keyboard shortcuts
 │   ├── shortcuts.js      Keyboard shortcuts (G then a letter)
 │   ├── scrollButtons.js  Left / right buttons above wide tables
 │   ├── utilities.js      Shared helpers (settings, formatting, CSV, dialogs, storage)
@@ -75,7 +77,7 @@ classroom-quiz/
 ├── data/
 │   └── sample-questions.json   Example of the older single-lesson format (blocked on Netlify)
 ├── firestore.rules       Security rules (the real protection)
-├── firestore.indexes.json  Empty: no composite index is needed any more
+├── firestore.indexes.json  1 optional index (teacher Overview reads fewer documents; see section 12)
 ├── 404.html              "Page not found" page
 ├── netlify.toml          Netlify settings: no build, blocked files, headers
 ├── .gitignore            Keeps real question banks and logs out of GitHub
@@ -502,9 +504,9 @@ What a frontend-only app **cannot** do:
 - **Why not sort in Firestore?** Sorting a filtered query by name, marks or date in Firestore needs a composite index for every combination of filter and column (dozens), and marks live in a separate collection that cannot be sorted together with the attempts. Reading pages in document order needs **no index at all**, so nothing has to be deployed and nothing can break on the live project. The cost is one larger read the first time you sort or search a big scope.
 - **Student history and Analysis** need every record of the chosen grade/section to calculate per-student and per-question figures, so they read it all (active and archived at the same time, up to 3,000 records) and then show **50 students per page**. Choosing a section makes this much faster.
 - **Quizzes:** the quiz list is small (no questions inside) and is read once; the table shows 50 quizzes per page, and search, filters and sorting cover all of them.
-- **No live listeners** are used anywhere, so an open dashboard costs nothing.
+- **Live updates (v3.1)** use small listeners, so an open dashboard costs very little: the students *taking a quiz right now* (usually a handful of documents), for the Admin the single newest result and review, for teachers one small signal document per class (`live/{grade_section}`, written once per grading or review action), the quiz list, settings, students and requests (these replace the reads the page did anyway when it opened). Each change costs one read per open dashboard. A new submission makes the visible page re-read only what it shows: Results re-reads the changed rows (or the current page), the Overview its counts at most every 20 seconds, Analysis at most once a minute. Pages that are not open re-read when you open them.
 - **Bulk actions** (grade, review, archive, restore, delete, import) are written in batches of at most 400 writes, with each record's documents in the same batch, so a record is never half moved. If something fails part way, the message says how many records were completed and the rest are untouched.
-- **No composite index is needed** (`firestore.indexes.json` stays empty; nothing new to deploy): every query uses equality filters plus document-id order, which Firestore serves from its automatic indexes. (This was checked on the emulator, which does not enforce indexes; if the live project ever reports a missing index, the error message contains a link that creates it.)
+- **No composite index is required.** `firestore.indexes.json` lists 1 *optional* index for teachers' recent submissions (section 12); everything works without it. Otherwise: every query uses equality filters plus document-id order, which Firestore serves from its automatic indexes. (This was checked on the emulator, which does not enforce indexes; if the live project ever reports a missing index, the error message contains a link that creates it.)
 - The free Spark plan allows 50,000 reads, 20,000 writes and 20,000 deletes per day. A class of 40 taking a quiz and the teacher grading it uses a few hundred.
 
 Measured on the emulator: **40 students taking a 20-question quiz at the
@@ -714,3 +716,31 @@ Student quiz pages have no shortcuts.
 
 - **123 security-rule tests** on the Firebase emulator: Admin setup only once, teachers cannot promote themselves or change their classes, teachers read only their classes, disabled teachers are blocked, students cannot duplicate a roll number or use another student's name, retakes, requests, activity log, archive is Admin only.
 - **Browser tests** of the real pages against the emulator: first Admin setup; creating teachers (and rejecting a duplicate username); teacher sign-in with a username; teacher sees no Admin tabs and cannot open them by address; teacher sees only their classes' results; direct Firestore calls from a teacher's browser are refused for other classes, teacher list, settings, the archive, renaming students and self-promotion; teacher quiz only for their sections; student registration, name filled in on another device, attempt linked to the student ID; one-time linking of old results; Admin rename and class move (name shown on the result page, old name kept); request approve and complete; scroll buttons; keyboard shortcuts; deactivated teacher blocked; password reset (old password refused, new one works); teacher retake; teacher has no Print, Archive or Delete on a record.
+
+---
+
+## 12. Version 3.1: teacher grading, new Overview, help search, live updates
+
+### What changed
+
+- **Teachers grade their own students directly.** No request to the Admin. On **Results** (Grade all eligible, or tick and Grade), on the full record page (Grade now / Recalculate), and now also on **Student record**: open a student and press **Grade N tests**, or use the ⋯ menu of one test (Grade now, Accept, Decline, Mark pending review). Older results saved without a grade and section (from earlier versions) can now be read and regraded by the class teacher too.
+- **Answer sheets from the Student record.** Open a student and press **Answers** next to any test: a window shows every question, the student's answer, the correct answer, the result and the marks, with a link to the full record. Teachers see this for their own classes. If a quiz was deleted, the full record page now still opens and shows the answers saved when it was graded (before, it could fail with a permission error for teachers).
+- **New Overview page.** In order: a greeting with quick links; **Needs your attention** (tests waiting for grading, students taking a quiz now, requests), or *All caught up*; four key figures; **Classes**, one card per grade with a row per section showing students, completed tests and tests to grade, with **Grade / Results** and **Students** buttons that open exactly that section; then recently submitted tests, recent quizzes and (Admin) recent activity. It works on phones too.
+- **Help search.** A search box at the top of Help filters the topics as you type and suggests the best matches (arrow keys and Enter open one). Ready-made searches such as *Grade tests*, *Answer sheet*, *Reset password* sit under the box. The **/** key jumps to the box.
+- **Live updates, no refresh.** The dashboard and the record page update by themselves when a student starts or submits a quiz, when someone else grades or reviews, when a quiz, setting, student or request changes. A **Live** label at the top right shows the connection. An update never closes an open menu or dialog: it waits until you close it. The Refresh buttons still work.
+- Printing and exporting records stay with the Admin (teachers can still ask with a request), as before.
+
+### Upgrade steps (from 3.0; nothing is deleted or rewritten)
+
+1. **Publish the new security rules.** Firebase console → **Firestore Database → Rules** → replace everything with the new `firestore.rules` → **Publish**. Changed: `results` (teachers can regrade older results of their own classes) and the new `live` collection (live-update signals). Until you publish, the site works but teachers' pages won't update live when someone else grades.
+2. **Upload the new website files** to GitHub as usual. Netlify publishes them by itself.
+3. Nothing else. **No index is needed** for live updates. `firestore.indexes.json` lists one *optional* index that only makes a teacher's "Recently submitted" list on the Overview read fewer documents; skip it unless that page feels slow. (To add it: Firebase console → **Firestore Database → Indexes → Composite → Create index** → collection `attempts`, fields `grade` Ascending, `section` Ascending, `submittedAt` Descending. Or `firebase deploy --only firestore:indexes`.)
+
+### How live updates reach teachers
+
+Each class has a tiny signal document, `live/{grade_section}`. Whoever grades, reviews, archives, restores or deletes records of a class touches it once per action (not once per record). Teachers' pages listen to the signal of each of their classes, so they update when the Admin or another teacher changes their class. Student starts and submissions are noticed directly. The rules let only the Admin and that class's teachers read or touch a class's signal, and it holds nothing but a time and who touched it.
+
+### Testing done for version 3.1
+
+- **44 security-rule tests** on the emulator for the changed parts, including the `live` signals (only the Admin and the class's teachers can read or touch them, with server time and their own id, no extra fields, no listing): teacher grades and regrades their own class, cannot grade or relabel another class, disabled teachers and students cannot write results, older results without grade/section readable and regradable only by the class teacher, reviews, and every live-update query (allowed for the right class, refused for other classes, unfiltered lists and students).
+- **Browser tests** of the real pages against the emulator: teacher Overview class cards and Live label; answer sheet window; grading from Student record; a student starting and then submitting appears on an open Results page without refresh; "taking a quiz now" on the Overview; an open record page updates when the Admin grades it; with two browsers, a teacher's Results, Student record and Overview update when the Admin grades or accepts their class, and the Admin's record page updates when the teacher grades; Help search, Enter, suggestion chips and no-match message; Overview Grade button opens that section's results filtered to *needs grading*; Students button opens that section; settings, new student, new quiz and new request appear live; student pages still load.

@@ -326,13 +326,23 @@ service cloud.firestore {
     }
 
     // -------------------------------------------------------------- results
+    // True when the teacher teaches the class of the attempt with this id
+    // (used for results saved by older versions without grade/section).
+    function teachesAttempt(attemptId) {
+      return isTeacher() && exists(docPath('attempts', attemptId))
+        && teaches(get(docPath('attempts', attemptId)).data.grade, get(docPath('attempts', attemptId)).data.section);
+    }
+
     match /results/{attemptId} {
-      allow get: if isAdmin() || (isTeacher() && (resource == null || teaches(resource.data.grade, resource.data.section)));
+      allow get: if isAdmin() || (isTeacher() && (resource == null
+        || teaches(resource.data.get('grade', ''), resource.data.get('section', ''))
+        || teachesAttempt(attemptId)));
       allow list: if isAdmin() || teaches(resource.data.grade, resource.data.section);
-      // Teachers grade the attempts of their own classes.
+      // Teachers grade the attempts of their own classes directly (no request
+      // to the Admin). The attempt decides the class, so an older result
+      // without grade/section can be regraded too.
       allow create, update: if isAdmin()
         || (teaches(request.resource.data.grade, request.resource.data.section)
-            && (resource == null || teaches(resource.data.grade, resource.data.section))
             && existsAfter(docPath('attempts', attemptId))
             && getAfter(docPath('attempts', attemptId)).data.grade == request.resource.data.grade
             && getAfter(docPath('attempts', attemptId)).data.section == request.resource.data.section);
@@ -347,6 +357,25 @@ service cloud.firestore {
     }
     match /archivedResults/{attemptId} {
       allow read, write: if isAdmin();
+    }
+
+    // ---------------------------------------------------------- live updates
+    // live/{grade_section}: a tiny "something changed in this class" signal.
+    // Staff who may change the class's records touch it after grading,
+    // reviewing, archiving or deleting; teachers of that class listen to it.
+    function liveKeyOk(key) {
+      let p = key.split('_');
+      return p.size() == 2 && (isAdmin() || teaches(p[0], p[1]));
+    }
+    match /live/{key} {
+      allow get: if liveKeyOk(key);
+      allow list: if isAdmin();
+      allow create, update: if liveKeyOk(key)
+        && request.resource.data.keys().hasOnly(['at', 'by', 'what'])
+        && request.resource.data.at == request.time
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.what is string && request.resource.data.what.size() <= 20;
+      allow delete: if isAdmin();
     }
 
     // ------------------------------------------------------------- requests

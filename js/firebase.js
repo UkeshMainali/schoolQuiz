@@ -15,7 +15,7 @@ import {
   getFirestore, connectFirestoreEmulator,
   doc, getDoc, getDocFromServer, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where,
   orderBy, limit, startAfter, writeBatch, serverTimestamp, Timestamp, documentId,
-  getCountFromServer, runTransaction, addDoc
+  getCountFromServer, runTransaction, addDoc, onSnapshot
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -72,5 +72,5 @@ export {
   sendPasswordResetEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider, addDoc,
   doc, getDoc, getDocFromServer, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where,
   orderBy, limit, startAfter, writeBatch, serverTimestamp, Timestamp, documentId,
-  getCountFromServer, runTransaction
+  getCountFromServer, runTransaction, onSnapshot
 };

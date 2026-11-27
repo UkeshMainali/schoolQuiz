@@ -7,9 +7,12 @@
 // (attempts are linked by the permanent studentId).
 //
 // Admin: add, edit (name, grade, section, roll number), print, export,
-//        archive and delete. Teachers: view their classes and send requests.
+//        archive and delete. Teachers: view their classes, open each test's
+//        answer sheet, grade and review, and send requests for the rest.
+// Both roles can open a test's answer sheet right here and grade it.
 
-import { fetchStudentRecords, queryAllAttempts, archiveRecords, deleteRecords } from "./records.js";
+import { fetchStudentRecords, queryAllAttempts, archiveRecords, deleteRecords, attemptIdParts, setReviewStatus } from "./records.js";
+import { gradeAttempts, gradeAttempt, loadAnswerKey, clearKeyCache } from "./grading.js";
 import { pagerHtml, pageSlice, clampPage } from "./pager.js";
 import { toRow } from "./recordsView.js";
 import { performance, studentKey as rowKey } from "./analytics.js";
@@ -30,6 +33,8 @@ import {
 } from "./utilities.js";
 
 const MAX_RECORDS = 3000;
+/** A submitted, not declined, not archived test that can be graded. */
+const gradable = (r) => r.submitted && !r.archived && r.review !== "declined";
 const fmt = (v, suffix = "") => (v === null || v === undefined ? "—" : `${v}${suffix}`);
 
 const GROUP_VALUE = {
@@ -85,7 +90,12 @@ export class StudentRecordView {
     document.addEventListener("click", (e) => {
       this.el.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
     });
-    onTeacherChange(() => { if (this.initialised) this.fillFilters(); });
+    onTeacherChange((what) => {
+      if (!this.initialised) return;
+      if (what === "settings") this.fillFilters();
+      // A student registered or renamed: show it in the list at once.
+      if (what === "students" && !this.current && this.loadedKey) { this.buildGroups(); this.renderList(); }
+    });
   }
 
   async run(fn) {
@@ -125,6 +135,18 @@ export class StudentRecordView {
   }
 
   invalidate() { this.cache.clear(); this.loadedKey = null; }
+
+  /** Opens the student list of one grade / section (from the Overview). */
+  openScope({ grade = "", section = "" } = {}) {
+    if (!this.initialised) { this.fillFilters(); this.initialised = true; }
+    this.renderSetup();
+    this.scope.grade = grade;
+    this.fillFilters();
+    this.scope.section = section;
+    this.fillSections();
+    this.$("search").value = "";
+    this.load();
+  }
 
   // ------------------------------------------------- one-time setup banner
 
@@ -181,15 +203,17 @@ export class StudentRecordView {
       && (!this.scope.section || String(s.section) === this.scope.section);
   }
 
-  async load() {
+  async load({ quiet = false } = {}) {
     storage.set("cq_history_scope", this.scope);
     this.current = null;
     this.$("detail").hidden = true;
     this.$("list").hidden = false;
     const scope = { grade: this.scope.grade, section: this.scope.section };
     this.loadedKey = JSON.stringify(this.scope);
-    this.listPage = 0;
-    this.$("list").innerHTML = skeleton("table", { cols: 8, rows: 8 });
+    if (!quiet) {
+      this.listPage = 0;
+      this.$("list").innerHTML = skeleton("table", { cols: 8, rows: 8 });
+    }
     try {
       const { rows, capped } = await this.fetch(scope, this.scope.archive);
       this.rows = rows;
@@ -313,10 +337,29 @@ export class StudentRecordView {
     return `<details class="menu row-menu"><summary class="btn btn-small" aria-label="Actions for ${escapeHtml(g.name)}">⋯</summary><div class="menu-list">${items.join("")}</div></details>`;
   }
 
+  // -------------------------------------------------------- live updates
+
+  /** Records changed elsewhere: re-read what is on screen, without a loading screen. */
+  async liveUpdate(ids) {
+    this.cache.clear();
+    if (this.el.closest(".tab-panel")?.hidden) { this.loadedKey = null; return; }
+    if (this.current && this.detailWho) {
+      const w = this.detailWho;
+      const mine = !ids || [...ids].some((id) => {
+        const p = attemptIdParts(id);
+        return !p || (p.grade === String(w.grade) && p.section === String(w.section) && (p.rollNo === "?" || p.rollNo === String(w.rollNo)))
+          || this.detailAll.some((r) => r.id === id);
+      });
+      if (mine) await this.openStudent(this.detailStudent ? { student: this.detailStudent } : w, { quiet: true });
+      return;
+    }
+    if (this.loadedKey) await this.load({ quiet: true });
+  }
+
   // ---------------------------------------------------------- one student
 
   /** target: a student, a list group, or { grade, section, rollNo } from a link. */
-  async openStudent(target) {
+  async openStudent(target, { quiet = false } = {}) {
     if (!target) return;
     if (!this.initialised) { this.initialised = true; this.scope.grade = target.grade || ""; this.fillFilters(); }
     let student = target.student || (target.id && directory.byId.get(target.id)) || null;
@@ -325,12 +368,14 @@ export class StudentRecordView {
       ? { id: student.id, grade: student.grade, section: student.section, rollNo: student.rollNo }
       : { grade: target.grade, section: target.section, rollNo: target.rollNo };
     this.current = student ? { student } : { grade: who.grade, section: who.section, rollNo: who.rollNo };
+    const token = this.current;
     this.$("list").hidden = true;
     const box = this.$("detail");
     box.hidden = false;
-    box.innerHTML = skeleton("page", { cols: 7, rows: 5 });
+    if (!quiet) box.innerHTML = skeleton("page", { cols: 7, rows: 5 });
     try {
       const recs = await fetchStudentRecords(who, { archive: this.scope.archive });
+      if (token !== this.current) return; // the user went back or opened someone else meanwhile
       const rows = recs.map((r) => ({ ...toRow(r.attempt, r.result, r.source === "archive"), archived: r.source === "archive" }));
       this.renderDetail(student, who, rows);
     } catch (err) {
@@ -367,6 +412,8 @@ export class StudentRecordView {
           ${student ? `<button type="button" data-gact="delete" data-key="${k}" class="danger">Delete student…</button>` : ""}
           ${rows.length ? `<button type="button" data-gact="delete-records" data-key="${k}" class="danger">Delete quiz records…</button>` : ""}</div></details>
       </div>` : `<div class="action-group">${btn("request", "Request a change", "", "paper-plane")}</div>`;
+    const toGrade = rows.filter((r) => gradable(r) && r.grading !== "graded").length;
+    const gradeAll = toGrade ? `<button type="button" class="btn btn-small btn-primary" data-act="grade-student" data-icon="clipboard-check">Grade ${toGrade === 1 ? "1 test" : `${toGrade} tests`}</button>` : "";
     const status = (r) => {
       const parts = [];
       if (r.archived) parts.push('<span class="badge badge-muted">Archived</span>');
@@ -389,7 +436,7 @@ export class StudentRecordView {
             <p class="muted">Roll ${escapeHtml(who.rollNo)} · Grade ${escapeHtml(who.grade)} · Section ${escapeHtml(who.section)}${student ? ` · <span class="small">ID <code>${escapeHtml(student.id)}</code></span>` : ""}</p>
             ${previous.length || typed.length ? `<p class="small muted">Earlier names: ${escapeHtml([...new Set([...previous, ...typed])].join(", "))}</p>` : ""}
           </div>
-          ${tools}
+          <div class="detail-tools">${gradeAll}${tools}</div>
         </div>
         <div class="summary-grid compact">
           <div class="summary-card"><div class="summary-label">Quizzes attempted</div><div class="summary-value">${perf.attempted}</div></div>
@@ -413,12 +460,116 @@ export class StudentRecordView {
               <td class="num">${r.obtained === null ? "—" : `${r.obtained} / ${r.total}`}</td>
               <td class="num">${fmt(r.percentage, "%")}</td>
               <td class="num">${r.focusLossCount}</td>
-              <td class="col-actions"><a class="btn btn-small" href="result.html?id=${encodeURIComponent(r.id)}${r.archived ? "&source=archive" : ""}">View</a></td>
+              <td class="col-actions"><div class="row-buttons">
+                <button type="button" class="btn btn-small" data-sheet="${escapeHtml(r.id)}" data-icon="file-lines" title="Answer sheet">Answers</button>
+                ${this.detailMenu(r)}</div></td>
             </tr>`).join("")}</tbody>
           </table>
         </div>` : '<p class="empty">No quiz records yet.</p>'}
       </section>`;
     paintSortHeaders(box, this.detailSort);
+  }
+
+  detailMenu(r) {
+    const id = escapeHtml(r.id);
+    const item = (act, label) => `<button type="button" data-ract="${act}" data-id="${id}">${label}</button>`;
+    const items = [`<a href="result.html?id=${encodeURIComponent(r.id)}${r.archived ? "&source=archive" : ""}">Open full record</a>`];
+    if (gradable(r)) items.push(item("grade", r.grading === "graded" ? "Recalculate marks" : "Grade now"));
+    if (!r.archived && r.submitted) {
+      if (r.review !== "accepted") items.push(item("accept", "Accept"));
+      if (r.review !== "declined") items.push(item("decline", "Decline"));
+      if (r.review !== "pending") items.push(item("pending", "Mark pending review"));
+    }
+    return `<details class="menu row-menu menu-right"><summary class="btn btn-small" aria-label="More for ${escapeHtml(r.quizTitle)}">⋯</summary><div class="menu-list">${items.join("")}</div></details>`;
+  }
+
+  /** The answer sheet of one test, in a dialog: every question, the student's answer and the correct one. */
+  async showSheet(id) {
+    const r = this.detailAll.find((x) => x.id === id);
+    if (!r) return;
+    const backdrop = document.createElement("div");
+    backdrop.className = "modal-backdrop";
+    backdrop.innerHTML = `<div class="modal modal-sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+      <div class="sheet-head"><div><h2 id="shTitle">${escapeHtml(r.quizTitle)}</h2>
+        <p class="small muted">${escapeHtml(r.studentName)} · Roll ${escapeHtml(r.rollNo)} · Grade ${escapeHtml(r.grade)} ${escapeHtml(r.section)}${r.submittedMs ? ` · ${escapeHtml(formatDateTime(r.attempt.submittedAt))}` : ""}</p></div>
+        <button type="button" class="btn btn-small btn-ghost" data-close aria-label="Close" data-icon="xmark">Close</button></div>
+      <div class="sheet-body">${skeleton("table", { cols: 5, rows: 4 })}</div>
+      <div class="actions"><a class="btn" href="result.html?id=${encodeURIComponent(r.id)}${r.archived ? "&source=archive" : ""}">Open full record</a><button type="button" class="btn btn-primary" data-close>Done</button></div>
+    </div>`;
+    document.body.appendChild(backdrop);
+    const close = () => { document.removeEventListener("keydown", onKey); backdrop.remove(); };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
+    document.addEventListener("keydown", onKey);
+    backdrop.addEventListener("click", (e) => { if (e.target === backdrop || e.target.closest("[data-close]")) close(); });
+    backdrop.querySelector("[data-close]").focus();
+    const body = backdrop.querySelector(".sheet-body");
+    try {
+      body.innerHTML = await this.sheetHtml(r);
+    } catch (err) {
+      console.error(err);
+      body.innerHTML = `<p class="empty">Could not load the answer sheet. ${escapeHtml(friendlyError(err))}</p>`;
+    }
+  }
+
+  async sheetHtml(r) {
+    // A current saved result has every answer; otherwise work it out from the answer key now.
+    let g = r.grading === "graded" && r.result?.details?.length ? r.result : null;
+    let live = false;
+    if (!g) {
+      const key = await loadAnswerKey(r.quizId).catch(() => null);
+      if (key) { g = gradeAttempt(r.attempt, key, r.result?.overrides || {}, teacher.settings.passPercent); live = true; }
+      else if (r.result?.details?.length) g = r.result;
+    }
+    if (!g) return '<p class="empty">The answer key of this quiz is missing, and the test has not been graded, so the answers cannot be shown.</p>';
+    const badge = { correct: '<span class="badge badge-success">Correct</span>', incorrect: '<span class="badge badge-danger">Incorrect</span>', unanswered: '<span class="badge">Unanswered</span>' };
+    const note = !r.submitted ? "Not submitted yet: these are the answers saved so far."
+      : live ? "Not graded yet: the marks below are worked out now. Press Grade now to save them." : "";
+    return `
+      <div class="sheet-summary">
+        <div><span>Marks</span><b>${escapeHtml(g.obtainedMarks)} / ${escapeHtml(g.totalMarks)}</b></div>
+        <div><span>Percentage</span><b>${escapeHtml(g.percentage)}%</b></div>
+        <div><span>Correct</span><b>${escapeHtml(g.correctCount)}</b></div>
+        <div><span>Incorrect</span><b>${escapeHtml(g.incorrectCount)}</b></div>
+        <div><span>Unanswered</span><b>${escapeHtml(g.unansweredCount)}</b></div>
+        <div><span>Result</span><b>${g.passed ? '<span class="badge badge-success">Pass</span>' : '<span class="badge badge-danger">Fail</span>'}</b></div>
+      </div>
+      ${note ? `<p class="notice notice-info small">${escapeHtml(note)}</p>` : ""}
+      <div class="table-wrap"><table class="data-table compact sheet-table">
+        <thead><tr><th class="num">#</th><th>Question</th><th>Student's answer</th><th>Correct answer</th><th>Result</th><th class="num">Marks</th></tr></thead>
+        <tbody>${(g.details || []).map((d) => `<tr class="sheet-${escapeHtml(d.status)}">
+          <td class="num">${escapeHtml(d.position)}</td>
+          <td>${escapeHtml(d.text || d.questionId)}</td>
+          <td>${d.given === null ? '<span class="muted">—</span>' : escapeHtml(d.type === "short_answer" ? d.givenText : `${d.given}. ${d.givenText}`)}</td>
+          <td>${escapeHtml(d.correctAnswer)}</td>
+          <td>${badge[d.status] || ""}${d.overridden ? ' <span class="small muted">(changed by teacher)</span>' : ""}</td>
+          <td class="num">${escapeHtml(d.marksAwarded)} / ${escapeHtml(d.marks)}</td></tr>`).join("")}</tbody>
+      </table></div>`;
+  }
+
+  /** Grade / accept / decline from the student record (teachers too, for their own classes). */
+  async recordAction(act, rows) {
+    if (act === "grade") {
+      const list = rows.filter(gradable);
+      if (!list.length) { appNotice("Nothing to grade here.", "info"); return; }
+      appNotice(`Grading ${pluralize(list.length, "test")}…`, "info");
+      clearKeyCache();
+      const existing = new Map(list.filter((r) => r.result).map((r) => [r.id, r.result]));
+      const { graded, skipped } = await gradeAttempts(list.map((r) => r.attempt), existing, teacher.settings.passPercent);
+      appNotice(`Graded ${pluralize(graded, "test")}.${skipped.length ? ` ${skipped.length} could not be graded because the quiz has no answer key.` : ""}`, skipped.length ? "warning" : "success");
+    } else {
+      const value = { accept: "accepted", decline: "declined", pending: "pending" }[act];
+      const list = rows.filter((r) => r.submitted && !r.archived);
+      if (!value || !list.length) return;
+      if (act === "decline") {
+        const ok = await confirmDialog({ title: "Decline this submission?", text: "It is left out of grades and averages. You can accept it later.", okText: "Decline" });
+        if (!ok) return;
+      }
+      await setReviewStatus(list, value, act === "decline" ? "Declined by teacher" : "");
+      appNotice(`Marked as ${{ accepted: "accepted", declined: "declined", pending: "pending review" }[value]}.`, "success");
+    }
+    this.cache.clear();
+    this.onChanged?.();
+    await this.openStudent(this.detailStudent ? { student: this.detailStudent } : this.detailWho, { quiet: true });
   }
 
   // ------------------------------------------------------------- events
@@ -449,6 +600,15 @@ export class StudentRecordView {
       if (!pageBtn.disabled) { this.listPage = Number(pageBtn.dataset.page); this.renderList(); this.$("list").scrollIntoView({ block: "start", behavior: "smooth" }); }
       return;
     }
+    const sheet = e.target.closest("[data-sheet]");
+    if (sheet) { this.run(() => this.showSheet(sheet.dataset.sheet)); return; }
+    const ract = e.target.closest("[data-ract]");
+    if (ract) {
+      ract.closest("details")?.removeAttribute("open");
+      const r = this.detailAll.find((x) => x.id === ract.dataset.id);
+      if (r) this.run(() => this.recordAction(ract.dataset.ract, [r]));
+      return;
+    }
     const open = e.target.closest("[data-open]");
     if (open) {
       open.closest("details")?.removeAttribute("open");
@@ -469,6 +629,7 @@ export class StudentRecordView {
     switch (act.dataset.act) {
       case "back": this.current = null; this.$("detail").hidden = true; this.$("list").hidden = false; this.renderList(); if (/^#(history|student)/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); break;
       case "migrate": this.run(() => this.migrate()); break;
+      case "grade-student": this.run(() => this.recordAction("grade", this.detailAll.filter((r) => r.grading !== "graded"))); break;
       case "print-one": await this.print(this.detailRows, false, "Student record"); break;
       case "print-one-answers": await this.print(this.detailRows, true, "Student record with answers"); break;
       case "print-list": await this.print(this.listRows(), false, "Student records"); break;

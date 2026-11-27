@@ -12,7 +12,7 @@
 // which the teacher uses once from this page. Every decision is logged.
 
 import {
-  db, doc, getDocs, collection, query, where, writeBatch, serverTimestamp, addDoc, Timestamp
+  db, doc, getDocs, collection, query, where, writeBatch, serverTimestamp, addDoc, Timestamp, onSnapshot
 } from "./firebase.js";
 import { logActivity } from "./auth.js";
 import { session, isAdmin } from "./roles.js";
@@ -55,6 +55,25 @@ export async function loadRequests() {
   requestsState.loaded = true;
   notify();
   return requestsState.list;
+}
+
+/** Same as loadRequests, but keeps the list up to date (new requests and decisions show at once). */
+let requestsUnsub = null;
+export function watchRequests() {
+  if (requestsUnsub) return Promise.resolve(requestsState.list);
+  const q = isAdmin() ? collection(db, "requests") : query(collection(db, "requests"), where("teacherId", "==", session.teacherId));
+  return new Promise((resolve, reject) => {
+    let first = true;
+    requestsUnsub = onSnapshot(q, (snap) => {
+      requestsState.list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      requestsState.loaded = true;
+      notify();
+      if (first) { first = false; resolve(requestsState.list); }
+    }, (err) => {
+      requestsUnsub = null;
+      if (first) { first = false; reject(err); } else console.warn("Live requests stopped", err);
+    });
+  });
 }
 
 export const pendingCount = () => requestsState.list.filter((r) => r.status === "pending").length;

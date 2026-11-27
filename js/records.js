@@ -14,6 +14,7 @@ import {
   serverTimestamp, documentId, getCountFromServer, orderBy
 } from "./firebase.js";
 import { classPairs, session } from "./roles.js";
+import { signalClasses } from "./live.js";
 
 export const SOURCES = {
   active: { attempts: "attempts", results: "results" },
@@ -71,6 +72,27 @@ export async function queryAttempts(source, scope, { pageSize = 300, cursor = nu
     cursor: snap.docs.length ? snap.docs[snap.docs.length - 1].id : cursor,
     hasMore: snap.docs.length === pageSize
   };
+}
+
+/**
+ * Grade, section, roll and quiz from an attempt id "<quizId>_<grade>_<section>_<roll>"
+ * (a previous attempt adds "~<time>"). Used by live updates to skip changes
+ * outside the records on screen without reading them.
+ */
+export function attemptIdParts(id) {
+  const parts = String(id || "").split("~")[0].split("_");
+  if (parts.length < 4) return null;
+  const rollNo = parts.pop(), section = parts.pop(), grade = parts.pop();
+  return { quizId: parts.join("_"), grade, section, rollNo };
+}
+
+/** True when an attempt id can belong to this scope (unknown id format: true). */
+export function idInScope(id, scope = {}) {
+  const p = attemptIdParts(id);
+  if (!p) return true;
+  // "?" stands for "any" (live.js reports a whole class as "?_<grade>_<section>_?").
+  const same = (part, want) => !want || part === "?" || part === String(want);
+  return same(p.grade, scope.grade) && same(p.section, scope.section) && same(p.quizId, scope.quizId) && same(p.rollNo, scope.rollNo);
 }
 
 /** Number of attempts in a scope (1 read per 1000 counted). */
@@ -183,9 +205,22 @@ async function runGrouped(groups, onProgress) {
     await commit();
   } catch (err) {
     err.completed = done;
+    signalGroups(groups);
     throw err;
   }
+  signalGroups(groups);
   return done;
+}
+
+/** Live updates: tell other dashboards which classes changed (see live.js). */
+function signalGroups(groups) {
+  const pairs = [];
+  groups.forEach((g) => g.ops.forEach((op) => {
+    if (!/ttempts$|esults$/i.test(op.col)) return;
+    const p = attemptIdParts(op.id);
+    if (p) pairs.push(p);
+  }));
+  signalClasses(pairs, "records");
 }
 
 const teacherName = () => session.name || session.username || auth.currentUser?.email || auth.currentUser?.uid || "";

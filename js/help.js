@@ -1,6 +1,8 @@
 // Help: the built-in guide. The Admin and teachers see different guides, and
 // each only describes features that role can use. Topics are expandable
 // sections (<details>), grouped into cards, so the page stays short.
+// A search box at the top filters the topics as you type, suggests matching
+// topics in a list (arrow keys + Enter), and offers ready-made searches.
 
 import { isAdmin } from "./roles.js";
 import { GO_KEYS, OTHER_KEYS } from "./shortcuts.js";
@@ -19,9 +21,15 @@ const TEACHER = [
       "To change your password yourself, press your name at the bottom of the menu, then <b>Change password</b>."
     ])],
     ["Your dashboard", bullets([
-      "<b>Overview</b> shows your quizzes, your classes, attempts and what still needs grading.",
-      "You only see the grades and sections the Admin assigned to you. They are listed at the top of the Overview.",
+      "<b>Overview</b> shows what needs your attention first (tests to grade, students taking a quiz now), then your key figures and a card for each of your classes.",
+      "In <b>My classes</b>, press <b>Grade</b> or <b>Results</b> on a section to open its results, or <b>Students</b> to open its student list.",
+      "You only see the grades and sections the Admin assigned to you.",
       "The menu on the left has everything you can use. Pages you cannot use are not shown."
+    ])],
+    ["Live updates (no refresh needed)", bullets([
+      "The dashboard updates by itself when a student starts or submits a quiz, or when someone else (the Admin or another teacher) grades or reviews a test. The <b>Live</b> label at the top right shows it is connected.",
+      "Open dialogs and menus are never closed by an update: it waits until you close them.",
+      "<i>Reconnecting…</i> means the internet connection dropped. The page catches up by itself when it is back."
     ])]
   ]],
   ["Quizzes", [
@@ -48,11 +56,21 @@ const TEACHER = [
     ])]
   ]],
   ["Results and students", [
+    ["Grade your students' tests", bullets([
+      "You grade the tests of your own classes yourself. No request to the Admin is needed.",
+      "<b>Results</b>: choose a grade, section and quiz, then press <b>Grade all eligible</b>, or tick tests and press <b>Grade</b>.",
+      "<b>Student record</b>: open a student and press <b>Grade</b>, or use the ⋯ menu of one test (<b>Grade now</b>, <b>Accept</b>, <b>Decline</b>).",
+      "Short answers with small spelling mistakes can be marked correct by hand on the full record page."
+    ])],
     ["View student results", bullets([
-      "Open <b>Results</b>, then choose a grade, a section and a quiz.",
-      "Press <b>Grade all eligible</b> to calculate marks. You can <b>Accept</b> or <b>Decline</b> submissions.",
-      "Short answers with small spelling mistakes can be marked correct by hand on the result page.",
+      "Open <b>Results</b>, then choose a grade, a section and a quiz. Press a student's name to open the full record.",
+      "You can <b>Accept</b> or <b>Decline</b> submissions, and <b>Allow retake</b> from the full record.",
       "Use the ‹ › buttons above a wide table to see more columns."
+    ])],
+    ["See a student's answer sheet", bullets([
+      "Open <b>Student record</b>, open the student, and press <b>Answer sheet</b> next to any test.",
+      "It shows every question, the student's answer, the correct answer and the marks.",
+      "Press <b>Open full record</b> for the whole page with quiz activity and hand marking."
     ])],
     ["Analyse performance", bullets([
       "<b>Analysis</b> compares sections, quizzes, questions and lessons for your classes.",
@@ -64,7 +82,7 @@ const TEACHER = [
       "Names come from the student records, so a name corrected by the Admin shows everywhere."
     ])],
     ["Ask the Admin for help (requests)", bullets([
-      "You cannot change student names, delete records, print or export records yourself.",
+      "You cannot change student names, delete records, print or export records yourself. Grading and viewing answers need no request.",
       "Use <b>Request a change</b> on a student, <b>Ask the Admin…</b> on results, or <b>Requests → New request</b>.",
       "Explain what you need and why. Follow the status on the <b>Requests</b> page: Pending, Approved, Declined or Completed.",
       "If the Admin gives a one-time permission to print or export, a <b>Print now</b> or <b>Download CSV</b> button appears on your request."
@@ -84,9 +102,14 @@ const TEACHER = [
 const ADMIN = [
   ["Getting started", [
     ["The Admin dashboard", bullets([
-      "<b>Overview</b> shows the whole school: teachers, students, quizzes, attempts, grading still to do, pending requests and recent activity. Press a figure to open its page.",
+      "<b>Overview</b> starts with what needs attention (tests to grade, students taking a quiz now, teacher requests), then key figures, a card per grade with each section's students, tests and grading, recent submissions, quizzes and activity.",
       "You see every quiz, result and student, in every grade and section.",
-      "Teachers only see their assigned classes and their own quizzes."
+      "Teachers only see their assigned classes and their own quizzes. They grade, review and open answer sheets for their own classes without asking you."
+    ])],
+    ["Live updates (no refresh needed)", bullets([
+      "The dashboard updates by itself when a student starts or submits a quiz, or when someone else (the Admin or another teacher) grades or reviews a test. The <b>Live</b> label at the top right shows it is connected.",
+      "Open dialogs and menus are never closed by an update: it waits until you close them.",
+      "<i>Reconnecting…</i> means the internet connection dropped. The page catches up by itself when it is back."
     ])],
     ["First steps after the upgrade", steps([
       "Open <b>Student record</b> and press <b>Link existing results</b> once. It creates student records from your existing results.",
@@ -125,6 +148,10 @@ const ADMIN = [
       "<b>Student record</b> lists registered students. Search by name or roll number, filter by grade and section.",
       "Students register themselves the first time they use the student page, or press <b>Add student</b>.",
       "Students marked <i>Not registered</i> have results but no record yet: open the ⋯ menu and choose <b>Register this student</b>."
+    ])],
+    ["See a student's answer sheet", bullets([
+      "Open <b>Student record</b>, open the student, and press <b>Answer sheet</b> next to any test. Teachers can do the same for their classes.",
+      "To print answer sheets, use <b>Print → Record with answers</b> on the student, or <b>Print → Answer sheets</b> on Results."
     ])],
     ["Correct a name or class", bullets([
       "Open a student and press <b>Edit details</b>. Change the name, grade, section or roll number.",
@@ -167,6 +194,59 @@ const ADMIN = [
   ]]
 ];
 
+// Extra words people search with, per topic title (the topic text is searched too).
+const KEYWORDS = {
+  "How to sign in": "login log in username password account staff",
+  "Your dashboard": "overview home start classes sections figures",
+  "The Admin dashboard": "overview home start classes sections figures",
+  "Live updates (no refresh needed)": "refresh reload automatic auto update real time realtime live",
+  "Create and upload quizzes": "add new quiz upload json question bank import lesson",
+  "Organise quizzes in tabs": "category categories folder term organize",
+  "Open and close quizzes": "start stop publish hide quiz available",
+  "Allow or stop retakes": "retake again redo second attempt reattempt",
+  "Grade your students' tests": "grade grading mark marks marking score check evaluate result",
+  "View student results": "results scores marks accept decline review",
+  "See a student's answer sheet": "answer sheet answers responses paper copy questions correct wrong",
+  "Analyse performance": "analysis analytics statistics average report chart",
+  "View student records": "student record history profile",
+  "Ask the Admin for help (requests)": "request admin permission ask print export delete rename",
+  "Create teacher accounts": "add teacher new account user staff",
+  "Usernames and passwords": "password reset forgot username change login",
+  "Grades, sections and permissions": "classes assign access permission deactivate delete teacher",
+  "Manage all quizzes": "quizzes edit delete archive owner",
+  "Manage student records": "students register add student list",
+  "Correct a name or class": "rename name wrong spelling move class section roll number edit",
+  "Print, export, archive and delete": "print pdf export csv excel download archive delete backup",
+  "Review teacher requests": "requests approve decline permission",
+  "School settings": "grades sections class size pass mark settings",
+  "Archive and backup": "backup restore import archive json",
+  "A teacher forgot their password": "password reset forgot",
+  "A student cannot see my quiz": "quiz missing not showing student cannot see",
+  "\"You don't have permission\"": "permission denied error not allowed"
+};
+
+const SUGGESTIONS = {
+  teacher: ["Grade tests", "Answer sheet", "Retake", "Add a quiz", "Live updates", "Wrong name", "Password", "Shortcuts"],
+  admin: ["Add teacher", "Reset password", "Answer sheet", "Print or export", "Rename a student", "Backup", "Live updates", "Shortcuts"]
+};
+
+const plain = (html) => String(html).replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
+const norm = (t) => String(t).toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9 ]+/g, " ");
+const STOP = new Set(["a", "an", "the", "to", "of", "how", "do", "i", "my", "can", "is", "for", "in", "on", "and", "or", "what", "where", "be"]);
+const words = (t) => norm(t).split(/\s+/).filter((w) => w && !STOP.has(w));
+
+/** Score of one topic for the typed words (0 = no match). Every word must match somewhere. */
+function scoreTopic(topic, qWords) {
+  let score = 0;
+  for (const w of qWords) {
+    const stem = w.length > 4 ? w.replace(/(ing|es|s|ed)$/, "") : w;
+    const inTitle = topic.titleN.includes(stem), inKeys = topic.keysN.includes(stem), inBody = topic.bodyN.includes(stem);
+    if (!inTitle && !inKeys && !inBody) return 0;
+    score += (inTitle ? 6 : 0) + (inKeys ? 4 : 0) + (inBody ? 1 : 0);
+  }
+  return score;
+}
+
 export class HelpView {
   constructor(container) {
     this.el = container;
@@ -180,10 +260,20 @@ export class HelpView {
     this.rendered = true;
     const guide = isAdmin() ? ADMIN : TEACHER;
     const go = GO_KEYS.filter((g) => isAdmin() || !g.admin);
+    const sugg = SUGGESTIONS[isAdmin() ? "admin" : "teacher"];
     this.el.innerHTML = `
       <div class="help-intro card">
         <h2>${isAdmin() ? "Admin guide" : "Teacher guide"}</h2>
-        <p class="muted">Short answers to the most common questions. Press a topic to open it.</p>
+        <p class="muted">Short answers to the most common questions. Search, or press a topic to open it.</p>
+        <div class="help-search" role="search">
+          <label class="sr-only" for="helpSearch">Search help</label>
+          <i class="fa-solid fa-magnifying-glass help-search-icon" aria-hidden="true"></i>
+          <input type="search" id="helpSearch" placeholder="Search help, e.g. grade, answer sheet, password" autocomplete="off" spellcheck="false"
+            role="combobox" aria-expanded="false" aria-controls="helpSuggest" aria-autocomplete="list">
+          <ul id="helpSuggest" class="help-suggest" role="listbox" hidden></ul>
+        </div>
+        <div class="help-chips" aria-label="Common searches"><span class="small muted">Try:</span>${sugg.map((t) => `<button type="button" class="help-chip" data-help-try="${escapeHtml(t)}" data-icon="none">${escapeHtml(t)}</button>`).join("")}</div>
+        <p class="small muted help-count" data-help-count aria-live="polite" hidden></p>
         <nav class="help-toc" aria-label="Help topics">${guide.map(([title], i) => `<a href="#help-${i}" data-help-jump="help-${i}">${escapeHtml(title)}</a>`).join("")}<a href="#help-shortcuts" data-help-jump="help-shortcuts">Keyboard shortcuts</a></nav>
       </div>
       ${guide.map(([title, topics], i) => `
@@ -208,11 +298,121 @@ export class HelpView {
       e.preventDefault();
       this.jump(a.dataset.helpJump);
     }));
+    this.initSearch(guide);
+  }
+
+  // -------------------------------------------------------------- search
+
+  initSearch(guide) {
+    this.topics = [];
+    this.el.querySelectorAll(".help-item").forEach((item, i) => {
+      const title = item.querySelector("summary").textContent;
+      const card = item.closest(".help-card");
+      item.id = item.id || `help-topic-${i}`;
+      this.topics.push({
+        el: item, card, title, section: card.querySelector("h2").textContent,
+        titleN: norm(title), keysN: norm(KEYWORDS[title] || ""), bodyN: norm(plain(item.querySelector(".help-body").innerHTML))
+      });
+    });
+    // The shortcuts table is one more "topic".
+    const sc = this.el.querySelector("#help-shortcuts");
+    this.topics.push({ el: sc, card: sc, title: "Keyboard shortcuts", section: "Keyboard shortcuts", isCard: true,
+      titleN: "keyboard shortcuts", keysN: "keys shortcut hotkey keyboard", bodyN: norm(plain(sc.innerHTML)) });
+
+    const input = this.el.querySelector("#helpSearch");
+    const list = this.el.querySelector("#helpSuggest");
+    this.active = -1;
+    input.addEventListener("input", () => this.search(input.value));
+    input.addEventListener("focus", () => { if (input.value.trim()) this.search(input.value); });
+    input.addEventListener("keydown", (e) => {
+      const items = [...list.querySelectorAll("[role=option]")];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (!items.length) return;
+        e.preventDefault();
+        this.active = (this.active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+        items.forEach((li, i) => li.setAttribute("aria-selected", String(i === this.active)));
+        input.setAttribute("aria-activedescendant", items[this.active].id);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const pick = items[this.active >= 0 ? this.active : 0];
+        if (pick) this.openTopic(Number(pick.dataset.topic));
+      } else if (e.key === "Escape") {
+        if (!list.hidden) { e.stopPropagation(); this.closeSuggest(); } else if (input.value) { input.value = ""; this.search(""); }
+      }
+    });
+    list.addEventListener("mousedown", (e) => e.preventDefault()); // keep focus in the box
+    list.addEventListener("click", (e) => {
+      const li = e.target.closest("[data-topic]");
+      if (li) this.openTopic(Number(li.dataset.topic));
+    });
+    input.addEventListener("blur", () => setTimeout(() => this.closeSuggest(), 120));
+    this.el.querySelectorAll("[data-help-try]").forEach((b) => b.addEventListener("click", () => {
+      input.value = b.dataset.helpTry;
+      this.search(input.value);
+      input.focus();
+    }));
+  }
+
+  closeSuggest() {
+    const list = this.el.querySelector("#helpSuggest");
+    const input = this.el.querySelector("#helpSearch");
+    if (!list || !input) return;
+    list.hidden = true;
+    input.setAttribute("aria-expanded", "false");
+    input.removeAttribute("aria-activedescendant");
+  }
+
+  /** Filters the topics and fills the suggestion list. */
+  search(text) {
+    const qWords = words(text);
+    const list = this.el.querySelector("#helpSuggest");
+    const input = this.el.querySelector("#helpSearch");
+    const count = this.el.querySelector("[data-help-count]");
+    this.active = -1;
+    if (!qWords.length) {
+      this.topics.forEach((t) => { t.el.hidden = false; t.card.hidden = false; if (!t.isCard) t.el.open = false; });
+      this.el.querySelector(".help-toc").hidden = false;
+      count.hidden = true;
+      this.closeSuggest();
+      return;
+    }
+    const scored = this.topics.map((t, i) => ({ t, i, score: scoreTopic(t, qWords) }));
+    const hits = scored.filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+    // Show only the matching topics (and their cards).
+    const hitSet = new Set(hits.map((x) => x.t));
+    this.topics.forEach((t) => { if (!t.isCard) t.el.hidden = !hitSet.has(t); });
+    this.el.querySelectorAll(".help-card").forEach((card) => {
+      const any = this.topics.some((t) => t.card === card && hitSet.has(t));
+      card.hidden = !any;
+    });
+    this.el.querySelector(".help-toc").hidden = true;
+    count.hidden = false;
+    count.textContent = hits.length ? `${hits.length} topic${hits.length === 1 ? "" : "s"} found. Press Enter to open the best match.` : "No topic matches. Try another word, or one of the suggestions above.";
+    list.innerHTML = hits.slice(0, 6).map((x, n) => `<li role="option" id="help-opt-${n}" data-topic="${x.i}" aria-selected="false">
+      <b>${escapeHtml(x.t.title)}</b><span>${escapeHtml(x.t.section)}</span></li>`).join("")
+      || '<li class="help-suggest-empty">No matching topic</li>';
+    list.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+  }
+
+  /** Opens one topic from the search: shows it, expands it and scrolls to it. */
+  openTopic(i) {
+    const t = this.topics[i];
+    if (!t) return;
+    this.closeSuggest();
+    t.card.hidden = false;
+    t.el.hidden = false;
+    if (!t.isCard) t.el.open = true;
+    t.el.scrollIntoView({ behavior: "smooth", block: "center" });
+    t.el.classList.add("help-flash");
+    setTimeout(() => t.el.classList.remove("help-flash"), 1600);
   }
 
   /** Scrolls to a section ("shortcuts" or "help-2") and opens its first topic. */
   jump(id) {
     this.show();
+    const box = this.el.querySelector("#helpSearch");
+    if (box?.value) { box.value = ""; this.search(""); }
     const target = this.el.querySelector(`#${id.startsWith("help-") ? id : `help-${id}`}`);
     if (!target) return;
     target.scrollIntoView({ behavior: "smooth", block: "start" });
