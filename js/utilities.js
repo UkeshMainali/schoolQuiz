@@ -135,6 +135,51 @@ export function toDate(value) {
   return null;
 }
 
+// ----------------------------------------------------------- time limits
+// A timed quiz has quizzes/{id}.durationMin > 0. Each attempt copies it to
+// timeLimitMin when it is created; timerStartedAt is the server time of the
+// moment the student pressed Begin. firestore.rules use the same numbers.
+
+/** Seconds after the deadline in which answers saved late (slow network) are still accepted. */
+export const TIME_GRACE_SECONDS = 120;
+export const MAX_DURATION_MIN = 600;
+
+/** Minutes of a quiz's time limit, or 0 for no limit. */
+export function quizDuration(quiz) {
+  const n = Number(quiz?.durationMin);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+/** "30 min", "1 h 15 min", or "No time limit". */
+export function durationLabel(min, { long = false } = {}) {
+  min = Number(min) || 0;
+  if (min <= 0) return "No time limit";
+  const h = Math.floor(min / 60), m = min % 60;
+  if (long) return [h && `${h} hour${h === 1 ? "" : "s"}`, m && `${m} minute${m === 1 ? "" : "s"}`].filter(Boolean).join(" ");
+  return [h && `${h} h`, m && `${m} min`].filter(Boolean).join(" ");
+}
+
+/** Deadline of a timed attempt (ms, server clock), or null (untimed or not started). */
+export function attemptDeadline(attempt) {
+  const lim = Number(attempt?.timeLimitMin) || 0;
+  const start = toDate(attempt?.timerStartedAt);
+  return lim > 0 && start ? start.getTime() + lim * 60000 : null;
+}
+
+/** True when a timed attempt was not submitted and its time (plus the grace period) is over. */
+export function attemptTimeUp(attempt, now = Date.now()) {
+  const end = attemptDeadline(attempt);
+  return attempt?.status === "in_progress" && end !== null && now > end + TIME_GRACE_SECONDS * 1000;
+}
+
+/** "12:05" or "1:02:09" for a number of milliseconds. */
+export function formatClock(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+}
+
 export function formatDateTime(value) {
   const d = toDate(value);
   if (!d) return "—";

@@ -153,14 +153,24 @@ service cloud.firestore {
         || (existsAfter(docPath('quizzes', id)) && getAfter(docPath('quizzes', id)).data.get('ownerId', '') == myId());
     }
 
+    // Test duration in whole minutes (0 or missing = no time limit).
+    function validDuration(d) {
+      return !('durationMin' in d) || d.durationMin == null
+        || (d.durationMin is int && d.durationMin >= 0 && d.durationMin <= 600);
+    }
+    function quizDuration(q) {
+      let v = q.get('durationMin', 0);
+      return v is int ? v : 0;
+    }
+
     match /quizzes/{quizId} {
       allow get, list: if isStaff() || (signedIn() && resource.data.active == true);
-      allow create: if isAdmin()
+      allow create: if validDuration(request.resource.data) && (isAdmin()
         || (isTeacher()
             && request.resource.data.ownerId == myId()
             && request.resource.data.ownerRole == 'teacher'
-            && teacherClassesOk(request.resource.data));
-      allow update: if isAdmin()
+            && teacherClassesOk(request.resource.data)));
+      allow update: if validDuration(request.resource.data) && (isAdmin()
         || (isTeacher()
             && resource.data.get('ownerId', '') == myId()
             && request.resource.data.ownerId == myId()
@@ -170,7 +180,7 @@ service cloud.firestore {
                 // closed, renamed or moved between tabs, but never opened
                 || (request.resource.data.get('active', false) != true
                     && request.resource.data.get('grade', '') == resource.data.get('grade', '')
-                    && request.resource.data.get('sections', []) == resource.data.get('sections', []))));
+                    && request.resource.data.get('sections', []) == resource.data.get('sections', [])))));
       allow delete: if isAdmin() || (isTeacher() && resource.data.get('ownerId', '') == myId());
     }
 
@@ -307,7 +317,12 @@ service cloud.firestore {
           && request.resource.data.reviewStatus in ['pending', 'accepted', 'declined'])
         || (isAdmin()
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['studentId'])
-          && request.resource.data.studentId is string);
+          && request.resource.data.studentId is string)
+        // A timed attempt the student never sent (browser closed) can be
+        // submitted by staff once its time and the grace period are over.
+        // Only the status changes; the saved answers stay as they are.
+        || ((isAdmin() || teaches(resource.data.grade, resource.data.section))
+          && staffSubmitExpired());
 
       // Deleting is for the Admin. A teacher can only move an attempt aside
       // for a retake (see retakeMoved).
@@ -448,7 +463,8 @@ service cloud.firestore {
       return d.keys().hasOnly(['uid', 'quizId', 'quizTitle', 'studentName', 'nameLower', 'studentId',
           'rollNo', 'grade', 'section', 'status', 'questionCount', 'order', 'optionOrder',
           'answers', 'answeredCount', 'currentIndex', 'focusLossCount',
-          'fullscreenExitCount', 'events', 'startedAt', 'lastSavedAt', 'submittedAt'])
+          'fullscreenExitCount', 'events', 'startedAt', 'lastSavedAt', 'submittedAt',
+          'timeLimitMin', 'timerStartedAt'])
         && d.keys().hasAll(['uid', 'quizId', 'quizTitle', 'studentName', 'nameLower',
           'rollNo', 'grade', 'section', 'status', 'questionCount', 'order', 'optionOrder',
           'answers', 'answeredCount', 'currentIndex', 'focusLossCount',
@@ -482,7 +498,52 @@ service cloud.firestore {
         && d.events is list && d.events.size() == 0
         && d.startedAt == request.time
         && d.lastSavedAt == request.time
-        && d.submittedAt == null;
+        && d.submittedAt == null
+        // The quiz's time limit is copied to the attempt (0 / missing = none);
+        // the timer itself starts later, when the student presses Begin.
+        && d.get('timeLimitMin', 0) == quizDuration(quiz)
+        && d.get('timerStartedAt', null) == null;
+    }
+
+    // ----------------------------------------------------------- time limits
+    // timeLimitMin (minutes) is fixed when the attempt is created.
+    // timerStartedAt is set ONCE, to the server's clock (request.time), by
+    // the first write after the student presses Begin; it can never change.
+    // Deadline = timerStartedAt + timeLimitMin. Answers saved more than
+    // TIME_GRACE (120 s, for slow networks) after the deadline are refused;
+    // after the deadline the attempt may still be submitted, with or without
+    // every question answered. Nothing here trusts the student's own clock.
+    function timeLimit(old) {
+      let v = old.get('timeLimitMin', 0);
+      return v is int ? v : 0;
+    }
+    function deadline(start, lim) { return start + duration.value(lim * 60, 's'); }
+    function timerRulesOk(d, old) {
+      let lim = timeLimit(old);
+      return (lim <= 0 && !d.diff(old).affectedKeys().hasAny(['timerStartedAt', 'autoSubmitted']))
+        || (lim > 0
+            && (old.get('timerStartedAt', null) == null
+                  ? d.get('timerStartedAt', null) == request.time
+                  : d.get('timerStartedAt', null) == old.timerStartedAt)
+            && (d.answers == old.answers
+                || request.time <= deadline(d.timerStartedAt, lim) + duration.value(120, 's')));
+    }
+    // The time is over (30 s of clock tolerance for the countdown on the device).
+    function timeIsUp(d, old) {
+      let lim = timeLimit(old);
+      return lim > 0 && d.get('timerStartedAt', null) != null
+        && request.time >= deadline(d.timerStartedAt, lim) - duration.value(30, 's');
+    }
+    function staffSubmitExpired() {
+      let d = request.resource.data;
+      let old = resource.data;
+      let lim = timeLimit(old);
+      return old.status == 'in_progress'
+        && lim > 0 && old.get('timerStartedAt', null) != null
+        && request.time > deadline(old.timerStartedAt, lim) + duration.value(120, 's')
+        && d.diff(old).affectedKeys().hasOnly(['status', 'submittedAt', 'autoSubmitted', 'submittedBy'])
+        && d.status == 'submitted' && d.submittedAt == request.time
+        && d.autoSubmitted == true && d.submittedBy == request.auth.uid;
     }
 
     function validAttemptUpdate() {
@@ -490,7 +551,8 @@ service cloud.firestore {
       let old = resource.data;
       return d.diff(old).affectedKeys().hasOnly(['answers', 'answeredCount', 'currentIndex',
           'focusLossCount', 'fullscreenExitCount', 'events', 'lastSavedAt', 'status',
-          'submittedAt'])
+          'submittedAt', 'timerStartedAt', 'autoSubmitted'])
+        && timerRulesOk(d, old)
         && d.answers is map
         && d.answers.keys().hasOnly(old.order)
         && d.answeredCount is int && d.answeredCount >= 0 && d.answeredCount <= old.questionCount
@@ -501,10 +563,12 @@ service cloud.firestore {
         && d.events is list && d.events.size() <= 200
         && d.lastSavedAt == request.time
         && ((d.status == 'in_progress' && d.submittedAt == null)
-            // Every question must be answered before submitting.
+            // Every question must be answered before submitting, unless the
+            // time limit is over (then it is submitted as it is).
             || (d.status == 'submitted' && d.submittedAt == request.time
-                && d.answers.size() == old.questionCount
-                && d.answeredCount == old.questionCount
+                && ((d.answers.size() == old.questionCount && d.answeredCount == old.questionCount)
+                    || timeIsUp(d, old))
+                && (d.get('autoSubmitted', false) == false || timeIsUp(d, old))
                 // checked again on submit, against the current limit
                 && rollAllowed(old.grade, old.section, old.rollNo)));
     }

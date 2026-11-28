@@ -47,7 +47,10 @@ watchStaff(
   (profile, user) => {
     if (started && profile.uid !== session.uid) { location.reload(); return; }
     $("userEmail").textContent = profile.name || profile.username || user.email || "";
-    $("userRole").textContent = profile.role === "admin" ? "Admin" : (profile.username ? `Teacher · ${profile.username}` : "Teacher");
+    const admin = profile.role === "admin";
+    $("userRole").innerHTML = `<i class="fa-solid fa-${admin ? "shield-halved" : "chalkboard-user"}" aria-hidden="true"></i><span>${admin ? "Admin" : "Teacher"}</span>`;
+    $("userRole").classList.toggle("is-admin", admin);
+    $("userRole").title = admin ? "Admin" : (profile.username ? `Teacher · ${profile.username}` : "Teacher");
     $("userInitial").textContent = (profile.name || profile.username || user.email || "?").charAt(0).toUpperCase();
     $("userBox").hidden = false;
     showView("appView");
@@ -303,7 +306,7 @@ function scheduleLiveFlush(ms) {
 
 /** Something is open that a re-render would close (a dialog, a menu, a dropdown). */
 function busy() {
-  return !!document.querySelector(".modal-backdrop, details.menu[open], .cselect.is-open");
+  return !!document.querySelector(".modal-backdrop, details.menu[open], .cselect.is-open, .cm");
 }
 
 function flushLive() {

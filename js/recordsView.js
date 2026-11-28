@@ -2,22 +2,23 @@
 // One class, configured by `source`, so both views behave the same way.
 //
 // Browse:   Grade -> Section -> Quiz (each choice narrows the Firestore query)
-// Pages:    50 records are read at a time (Next / Previous). Only that page's
+// Pages:    30 records (or the number chosen in the per-page box) are read at
+//           a time (Next / Previous). Only that page's
 //           attempts and results are downloaded.
 // Filter:   search, status, submission dates and column sorting need every
 //           record of the scope, so the first time one is used the whole scope
-//           is read once (in blocks of 500) and then shown 50 per page.
+//           is read once (in blocks of 500) and then shown 30 (or the chosen number) per page.
 //           Summary cards and "all shown" actions do the same.
 // Actions:  per record, on selected records, or on all records shown.
 
 import {
   queryAttempts, queryAllAttempts, fetchResults, countAttempts, setReviewStatus, deleteRecords,
-  archiveRecords, restoreRecords, isSplitScope, fetchRecordsByIds, idInScope
+  archiveRecords, restoreRecords, isSplitScope, fetchRecordsByIds, idInScope, submitExpiredAttempts
 } from "./records.js";
 import { isAdmin, myGrades, mySections, NO_PERMISSION } from "./roles.js";
 import { openRequestDialog } from "./requests.js";
 import { logActivity } from "./auth.js";
-import { PAGE_SIZE, pagerHtml, pageSlice, clampPage } from "./pager.js";
+import { pagerHtml, pageSlice, clampPage, getPageSize, setPageSize, pageAfterResize } from "./pager.js";
 import { gradeAttempts, needsGrading, clearKeyCache } from "./grading.js";
 import { buildBackup, summaryCsv, detailedCsv } from "./backup.js";
 import { buildReport, printHtml } from "./print.js";
@@ -27,7 +28,7 @@ import { overview } from "./analytics.js";
 import { nameFor, studentFor } from "./students.js";
 import {
   escapeHtml, formatDateTime, toDate, friendlyError, downloadFile, confirmDialog, pluralize,
-  storage, historyLink, skeletonRows
+  storage, historyLink, skeletonRows, attemptTimeUp
 } from "./utilities.js";
 
 const FLAG_THRESHOLD = 3;
@@ -94,7 +95,10 @@ export function toRow(a, result, isArchive = false) {
     fullscreenExitCount: a.fullscreenExitCount || 0,
     answeredCount: a.answeredCount || 0,
     questionCount: a.questionCount || 0,
-    submittedMs: toDate(a.submittedAt)?.getTime() || 0
+    submittedMs: toDate(a.submittedAt)?.getTime() || 0,
+    timeLimitMin: Number(a.timeLimitMin) || 0,
+    timeUp: attemptTimeUp(a),
+    autoSubmitted: !!a.autoSubmitted
   };
 }
 
@@ -113,6 +117,7 @@ export class RecordsView {
     this.sort = { key: null, dir: "asc" }; // null: Firestore order (quiz, grade, section, roll)
     this.counts = { grades: new Map(), sections: new Map() };
     this.page = 0;
+    this.pageSize = getPageSize(source); // rows per page (30 by default); one Firestore page = this many attempts
     this.pageStarts = [null];  // cursor before each page read so far
     this.total = 0;
     this.full = false;
@@ -363,10 +368,10 @@ export class RecordsView {
     this.render();
   }
 
-  /** Reads page n (0-based) from Firestore: 50 attempts and their results. */
+  /** Reads page n (0-based) from Firestore: pageSize attempts and their results. */
   async loadPage(n, seq = this.seq, { quiet = false } = {}) {
     if (!quiet) this.showLoading();
-    const page = await queryAttempts(this.source, this.scope, { pageSize: PAGE_SIZE, cursor: this.pageStarts[n] });
+    const page = await queryAttempts(this.source, this.scope, { pageSize: this.pageSize, cursor: this.pageStarts[n] });
     const results = await fetchResults(this.source, page.items.map((a) => a.id));
     if (seq !== this.seq) return;
     this.items = page.items;
@@ -374,7 +379,7 @@ export class RecordsView {
     this.page = n;
     this.pageStarts.length = n + 1;
     if (page.hasMore) this.pageStarts.push(page.cursor);
-    if (!page.hasMore) this.total = n * PAGE_SIZE + page.items.length;
+    if (!page.hasMore) this.total = n * this.pageSize + page.items.length;
     if (n === 0 && (!page.hasMore || page.items.length >= this.total)) this.full = true; // everything fits on one page
     this.buildRows();
   }
@@ -554,14 +559,16 @@ export class RecordsView {
   }
 
   statusCell(r) {
-    if (r.grading === "in_progress") return `<span class="badge">In progress ${r.answeredCount}/${r.questionCount}</span>`;
+    if (r.grading === "in_progress") return r.timeUp
+      ? `<span class="badge badge-warning" title="The time limit is over but the quiz was not submitted">Time up · ${r.answeredCount}/${r.questionCount}</span>`
+      : `<span class="badge">In progress ${r.answeredCount}/${r.questionCount}</span>`;
     const g = r.grading === "graded"
       ? (r.passed ? '<span class="badge badge-success">Pass</span>' : '<span class="badge badge-danger">Fail</span>')
       : `<span class="badge badge-warning">${r.gradingLabel}</span>`;
     const rv = r.review === "accepted" ? '<span class="badge badge-info">Accepted</span>'
       : r.review === "declined" ? '<span class="badge badge-danger-outline">Declined</span>'
         : '<span class="badge badge-muted">Pending review</span>';
-    return `<div class="status-stack">${g}${rv}${r.previous ? '<span class="badge">Previous attempt</span>' : ""}</div>`;
+    return `<div class="status-stack">${g}${rv}${r.autoSubmitted ? '<span class="badge" title="Submitted automatically when the time ran out">Auto-submitted</span>' : ""}${r.previous ? '<span class="badge">Previous attempt</span>' : ""}</div>`;
   }
 
   rowActions(r) {
@@ -574,6 +581,7 @@ export class RecordsView {
     if (this.isArchive) {
       items.push(`<button type="button" data-row-act="restore" data-id="${escapeHtml(r.id)}">Restore</button>`);
     } else {
+      if (r.timeUp) items.push(`<button type="button" data-row-act="submit-expired" data-id="${escapeHtml(r.id)}" data-icon="stopwatch">Submit (time is up)</button>`);
       if (r.submitted) {
         items.push(`<button type="button" data-row-act="grade" data-id="${escapeHtml(r.id)}">${r.grading === "graded" ? "Recalculate" : "Grade"}</button>`);
         if (r.review !== "accepted") items.push(`<button type="button" data-row-act="accept" data-id="${escapeHtml(r.id)}">Accept</button>`);
@@ -596,8 +604,8 @@ export class RecordsView {
     const all = this.rows;
     const shown = this.full ? this.sortedRows(this.filteredRows()) : all;
     this.shown = shown; // "all shown": every matching record, on every page
-    if (this.full) this.page = clampPage(this.page, shown.length);
-    const pageRows = this.full ? pageSlice(shown, this.page) : all;
+    if (this.full) this.page = clampPage(this.page, shown.length, this.pageSize);
+    const pageRows = this.full ? pageSlice(shown, this.page, this.pageSize) : all;
     this.pageRows = pageRows;
 
     if (!this.isArchive) { if (this.full) this.renderSummary(all); else this.renderSummaryPlaceholder(); }
@@ -633,9 +641,10 @@ export class RecordsView {
       empty.hidden = false;
     } else empty.hidden = true;
     this.$(".records-table").hidden = !shown.length;
+    const pg = { size: this.pageSize, sizeKey: this.source, label: "records" };
     this.$("[data-pager]").innerHTML = this.full
-      ? pagerHtml({ page: this.page, total: shown.length })
-      : pagerHtml({ page: this.page, total: this.total, reachable: this.pageStarts.length - 1 });
+      ? pagerHtml({ ...pg, page: this.page, total: shown.length })
+      : pagerHtml({ ...pg, page: this.page, total: this.total, reachable: this.pageStarts.length - 1 });
     this.renderSelection();
   }
 
@@ -681,8 +690,26 @@ export class RecordsView {
 
   // ----------------------------------------------------------------- events
 
+  /** A new records-per-page choice: re-page what is loaded, or read page 1 again with the new size. */
+  async changePageSize(value) {
+    const size = setPageSize(this.source, value);
+    if (size === this.pageSize) return;
+    if (this.full) {
+      this.page = pageAfterResize(this.page, this.pageSize, size, (this.shown || this.rows).length);
+      this.pageSize = size;
+      this.render();
+      return;
+    }
+    // Firestore pages: the saved cursors belong to the old size, so start again at page 1.
+    this.pageSize = size;
+    this.pageStarts = [null];
+    const seq = ++this.seq;
+    try { await this.loadPage(0, seq); if (seq === this.seq) this.render(); } catch (err) { console.error(err); appNotice(`Could not load the page. ${friendlyError(err)}`, "error"); }
+  }
+
   onChange(e) {
     const t = e.target;
+    if (t.matches("[data-page-size]")) { this.changePageSize(t.value); return; }
     if (t.matches("[data-select]")) {
       if (t.checked) this.selected.add(t.dataset.select); else this.selected.delete(t.dataset.select);
       t.closest("tr").classList.toggle("selected", t.checked);
@@ -690,7 +717,7 @@ export class RecordsView {
     } else if (t.matches('[data-act="select-all"]')) {
       (this.pageRows || []).forEach((r) => { if (t.checked) this.selected.add(r.id); else this.selected.delete(r.id); });
       this.render();
-    } else if (t.matches("[data-filter]")) {
+    } else if (t.matches("[data-filter]") && t.dataset.filter !== "search") { // search re-renders on input; its blur "change" would close a menu just opened
       this.page = 0;
       this.render();
     } else if (t.matches(".scope-quiz")) {
@@ -795,6 +822,17 @@ export class RecordsView {
           return;
         }
         case "accept": case "decline": case "pending": return await this.review(verb, rows);
+        case "submit-expired": {
+          const list = rows.filter((r) => r.timeUp);
+          if (!list.length) { appNotice("The time of this quiz is not over yet.", "info"); return; }
+          const ok = await confirmDialog({ title: `Submit ${pluralize(list.length, "quiz", "quizzes")} whose time is up?`, text: "The answers saved before the time ran out are submitted as they are. Unanswered questions count as unanswered.", okText: "Submit" });
+          if (!ok) return;
+          await submitExpiredAttempts(list);
+          logActivity("attempts_time_up", `Submitted ${pluralize(list.length, "timed quiz", "timed quizzes")} after the time ran out`, list.map((r) => r.id).join(",").slice(0, 200));
+          appNotice(`Submitted ${pluralize(list.length, "quiz", "quizzes")}. You can grade ${list.length === 1 ? "it" : "them"} now.`, "success");
+          this.onChanged?.("review");
+          return void await this.quietReload();
+        }
         case "print": return await this.print(rows, false);
         case "sheets": return await this.print(rows, true);
         case "csv": return this.exportCsv(rows);

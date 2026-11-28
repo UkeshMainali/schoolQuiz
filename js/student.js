@@ -7,7 +7,7 @@ import { lookupStudent, registerStudent } from "./students.js";
 import {
   loadSettings, sectionsFor, validateRoll, rollLimit, normalizeName, makeAttemptId, escapeHtml,
   friendlyError, showNotice, hideNotice, storage, formatDateTime, pluralize,
-  ACTIVE_KEY, skeleton, PENDING_KEY, PROFILE_KEY
+  ACTIVE_KEY, skeleton, PENDING_KEY, PROFILE_KEY, quizDuration, durationLabel
 } from "./utilities.js";
 
 const $ = (id) => document.getElementById(id);
@@ -284,6 +284,7 @@ function renderQuizList() {
             <span>${q.grade ? `Grade ${escapeHtml(q.grade)}` : "All grades"}</span>
             <span>${pluralize(q.questionCount || 0, "question")}</span>
             <span>${pluralize(q.totalMarks || 0, "mark")}</span>
+            ${quizDuration(q) ? `<span class="quiz-item-time"><i class="fa-solid fa-stopwatch" aria-hidden="true"></i>${escapeHtml(durationLabel(quizDuration(q)))}</span>` : ""}
           </div>
           ${lessonInfo ? `<div class="small muted">${escapeHtml(lessonInfo)}</div>` : ""}
         </div>
@@ -308,7 +309,9 @@ function onQuizListClick(e) {
   }
   pendingStart = quiz;
   $("confirmDetails").innerHTML = [
-    ["Quiz", quiz.title], ["Questions", quiz.questionCount], ["Name", profile.name],
+    ["Quiz", quiz.title], ["Questions", quiz.questionCount],
+    ...(quizDuration(quiz) ? [["Time limit", `${durationLabel(quizDuration(quiz), { long: true })} (starts when you press Begin)`]] : []),
+    ["Name", profile.name],
     ["Roll number", profile.roll], ["Grade", profile.grade], ["Section", profile.section]
   ].map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join("");
   $("confirmModal").hidden = false;

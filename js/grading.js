@@ -33,6 +33,23 @@ export function normalizeText(value, { caseSensitive = false, trimWhitespace = t
   return s;
 }
 
+/**
+ * True when `given` is a correct answer to the answer-key question `kq`.
+ * The ONE place answers are checked: student grading (gradeAttempt) and
+ * Live Classroom Mode both use it, so they always agree.
+ *   mcq / true_false: the chosen option id equals correctOptionId
+ *   short_answer: matches one accepted answer (case and spaces as configured)
+ */
+export function isCorrectAnswer(kq, given) {
+  if (!kq || !isAnswered(given)) return false;
+  if (kq.type === "short_answer") {
+    const opts = { caseSensitive: kq.caseSensitive === true, trimWhitespace: kq.trimWhitespace !== false };
+    const g = normalizeText(given, opts);
+    return (kq.acceptedAnswers || []).some((a) => normalizeText(a, opts) === g);
+  }
+  return String(given) === String(kq.correctOptionId);
+}
+
 function isAnswered(value) {
   return value !== undefined && value !== null && String(value).trim() !== "";
 }
@@ -56,16 +73,7 @@ export function gradeAttempt(attempt, key, overrides = {}, defaultPassPercent = 
     if (!kq) { missing.push(qid); return; }
     const given = answers[qid];
     const answered = isAnswered(given);
-    let correct = false;
-    if (answered) {
-      if (kq.type === "short_answer") {
-        const opts = { caseSensitive: kq.caseSensitive === true, trimWhitespace: kq.trimWhitespace !== false };
-        const g = normalizeText(given, opts);
-        correct = (kq.acceptedAnswers || []).some((a) => normalizeText(a, opts) === g);
-      } else {
-        correct = String(given) === String(kq.correctOptionId);
-      }
-    }
+    let correct = answered && isCorrectAnswer(kq, given);
     const overridden = Object.prototype.hasOwnProperty.call(overrides, qid) && answered;
     if (overridden) correct = overrides[qid] === true;
 

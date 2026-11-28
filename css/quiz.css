@@ -126,3 +126,29 @@ body.obscured .question-card, body.obscured .quiz-top, body.obscured .navigator,
   display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; cursor: pointer;
 }
 .obscure-cover b { font-size: 1.2rem; }
+
+/* ------------------------------------------------ v3.2: time limit */
+.quiz-timer {
+  position: fixed; top: 12px; right: 12px; z-index: 60;
+  display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 16px;
+  border-radius: var(--radius-pill); background: var(--surface); border: 2px solid var(--primary-line);
+  box-shadow: var(--shadow-pop); color: var(--primary); font-size: 0.9rem; font-weight: 650;
+}
+.quiz-timer b { font-size: 1.25rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.quiz-timer.is-low { border-color: var(--warning-line); background: var(--warning-soft); color: var(--warning); }
+.quiz-timer.is-danger { border-color: var(--danger); background: var(--danger); color: #fff; animation: timer-pulse 1s ease-in-out infinite; }
+@keyframes timer-pulse { 50% { box-shadow: 0 0 0 6px rgba(180, 35, 24, 0.22); } }
+@media (prefers-reduced-motion: reduce) { .quiz-timer.is-danger { animation: none; } }
+body.timed .quiz-top { padding-right: 168px; }
+@media (max-width: 560px) {
+  .quiz-timer { top: auto; bottom: 12px; right: 50%; transform: translateX(50%); height: 40px; }
+  .quiz-timer-label { display: none; }
+  body.timed .quiz-top { padding-right: 0; }
+  body.timed .quiz-container { padding-bottom: 80px; }
+}
+.time-up-modal { text-align: center; }
+.time-up-icon { width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--danger-soft); color: var(--danger); font-size: 1.6rem; }
+.time-up-modal .actions { justify-content: center; }
+.time-up-modal .actions:has(> [hidden]:only-child) { display: none; }
+.rules-list .timed-rule { color: var(--text); background: var(--warning-soft); border: 1px solid var(--warning-line); border-radius: var(--radius-sm); padding: 8px 12px; margin-left: -20px; list-style: none; }
+.quiz-item-time { display: inline-flex; align-items: center; gap: 5px; color: var(--primary); font-weight: 600; }

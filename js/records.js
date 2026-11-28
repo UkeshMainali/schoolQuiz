@@ -239,6 +239,17 @@ export function setReviewStatus(records, status, note = "") {
   return runGrouped(records.map((r) => ({ ops: [{ type: "update", col: "attempts", id: r.id, data }] })));
 }
 
+/**
+ * Submits timed attempts whose time ran out but that the student never sent
+ * (the browser was closed, the device was off). Only the status changes: the
+ * answers saved before the deadline are kept exactly as they are. The rules
+ * allow this only after the deadline plus the grace period.
+ */
+export function submitExpiredAttempts(records) {
+  const data = { status: "submitted", submittedAt: serverTimestamp(), autoSubmitted: true, submittedBy: auth.currentUser?.uid || "" };
+  return runGrouped(records.map((r) => ({ ops: [{ type: "update", col: "attempts", id: r.id, data }] })));
+}
+
 /** Permanently deletes records (attempt + result) from one source. */
 export function deleteRecords(source, records, onProgress) {
   const cols = SOURCES[source];

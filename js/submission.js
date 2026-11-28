@@ -5,7 +5,7 @@ import {
   db, auth, doc, getDoc, getDocFromServer, getDocs, setDoc, updateDoc, collection, query, where,
   serverTimestamp
 } from "./firebase.js";
-import { withTimeout } from "./utilities.js";
+import { withTimeout, quizDuration, toDate } from "./utilities.js";
 
 /**
  * Open quizzes for one grade (plus older quizzes that have no grade).
@@ -79,7 +79,9 @@ export async function createAttempt(attemptId, { quiz, student, order, optionOrd
     events: [],
     startedAt: serverTimestamp(),
     lastSavedAt: serverTimestamp(),
-    submittedAt: null
+    submittedAt: null,
+    // Timed quizzes: the limit is fixed now; the timer starts when the student presses Begin.
+    ...(quizDuration(quiz) ? { timeLimitMin: quizDuration(quiz), timerStartedAt: null } : {})
   };
   await withTimeout(setDoc(doc(db, "attempts", attemptId), data), 15000);
   return { id: attemptId, ...data };
@@ -103,24 +105,66 @@ export async function saveProgress(attemptId, state) {
 }
 
 /**
+ * Starts the timer of a timed attempt: one write that sets timerStartedAt to
+ * the SERVER's clock (the rules only accept request.time, once), then one
+ * read from the server to learn that time. Returns { startMs, offsetMs }:
+ * offsetMs = server clock − this device's clock, so the countdown is right
+ * even when the device's clock is wrong.
+ */
+export async function startTimer(attemptId, state) {
+  const ref = doc(db, "attempts", attemptId);
+  const t0 = Date.now();
+  await withTimeout(updateDoc(ref, { ...progressFields(state), timerStartedAt: serverTimestamp() }), 15000);
+  const t1 = Date.now();
+  const snap = await withTimeout(getDocFromServer(ref), 10000);
+  const data = snap.data() || {};
+  const startMs = toDate(data.timerStartedAt)?.getTime();
+  const serverNow = toDate(data.lastSavedAt)?.getTime() || startMs;
+  return { startMs, offsetMs: serverNow - (t0 + t1) / 2, attempt: data };
+}
+
+/**
+ * Measures the server clock for an attempt whose timer already runs (after a
+ * refresh): touches lastSavedAt only (allowed even after the deadline) and
+ * reads it back. Returns { offsetMs, attempt }.
+ */
+export async function syncClock(attemptId) {
+  const ref = doc(db, "attempts", attemptId);
+  const t0 = Date.now();
+  await withTimeout(updateDoc(ref, { lastSavedAt: serverTimestamp() }), 15000);
+  const t1 = Date.now();
+  const snap = await withTimeout(getDocFromServer(ref), 10000);
+  const data = snap.data() || {};
+  const serverNow = toDate(data.lastSavedAt)?.getTime();
+  return { offsetMs: serverNow ? serverNow - (t0 + t1) / 2 : 0, attempt: data };
+}
+
+/**
  * Final submission in ONE write. If the first try times out but actually
  * reached the server, a retry is denied by the rules (attempt already
  * submitted), so we re-read the attempt to confirm instead of failing.
+ *   timeUp: the time limit ran out (unanswered questions are allowed)
+ *   keepServerAnswers: submit only the status, with the answers the server
+ *     already has (used when answers changed too late to be accepted)
  */
-export async function submitAttempt(attemptId, state) {
+export async function submitAttempt(attemptId, state, { timeUp = false, keepServerAnswers = false } = {}) {
   const ref = doc(db, "attempts", attemptId);
+  const fields = keepServerAnswers
+    ? { lastSavedAt: serverTimestamp() }
+    : progressFields(state);
   try {
     await withTimeout(updateDoc(ref, {
-      ...progressFields(state),
+      ...fields,
       status: "submitted",
-      submittedAt: serverTimestamp()
+      submittedAt: serverTimestamp(),
+      ...(timeUp ? { autoSubmitted: true } : {})
     }), 20000);
     return { ok: true };
   } catch (err) {
     try {
       // Must ask the server: the local cache would already show our pending write.
       const snap = await withTimeout(getDocFromServer(ref), 10000);
-      if (snap.exists() && snap.data().status === "submitted") return { ok: true, alreadySubmitted: true };
+      if (snap.exists() && snap.data().status === "submitted") return { ok: true, alreadySubmitted: true, attempt: snap.data() };
     } catch { /* fall through */ }
     throw err;
   }

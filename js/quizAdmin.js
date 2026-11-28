@@ -14,10 +14,11 @@ import { db, doc, writeBatch, serverTimestamp, Timestamp } from "./firebase.js";
 import { parseQuestionBank, buildQuiz, toQuizMeta, toQuizContent, toAnswerKey } from "./questionBank.js";
 import { loadAnswerKey, clearKeyCache } from "./grading.js";
 import { teacher, reloadQuizzes, reloadCategories, setCategories, appNotice, onTeacherChange } from "./teacherState.js";
-import { pagerHtml, pageSlice, clampPage } from "./pager.js";
-import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage, skeleton } from "./utilities.js";
+import { pagerHtml, pageSlice, clampPage, getPageSize, setPageSize, pageAfterResize } from "./pager.js";
+import { escapeHtml, friendlyError, confirmDialog, inputDialog, pluralize, formatDateTime, formatDate, toDate, storage, skeleton, quizDuration, durationLabel, MAX_DURATION_MIN } from "./utilities.js";
+import { openClassroom, openClassroomPicker } from "./classroom.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
-import { session, isAdmin, ownsQuiz, myGrades, mySections } from "./roles.js";
+import { session, isAdmin, ownsQuiz, myGrades, mySections, sectionsText, quizForMyClasses } from "./roles.js";
 import { countAttempts, attemptIdParts } from "./records.js";
 import { logActivity } from "./auth.js";
 import {
@@ -43,8 +44,8 @@ const QUIZ_VALUE = {
 };
 
 const gradeLabel = (g) => (g ? `Grade ${escapeHtml(g)}` : "Any grade");
-/** "Sections A, B" or "All sections". */
-const sectionsLabel = (q) => (Array.isArray(q.sections) && q.sections.length ? `Section ${q.sections.map(escapeHtml).join(", ")}` : "All sections");
+/** "Section A, B", or "All sections" (none chosen, or every section of the grade chosen). */
+const sectionsLabel = (q) => escapeHtml(sectionsText(teacher.settings, q.grade, q.sections, { prefix: (q.sections || []).length === 1 ? "Section " : "Sections " }));
 /** Who owns a quiz: a teacher's name, or "Admin" (also for quizzes made before roles existed). */
 export function ownerLabel(q) {
   if (q.ownerRole === "teacher") return q.ownerName || "Teacher";
@@ -52,6 +53,52 @@ export function ownerLabel(q) {
 }
 const typeSummary = (questions) => Object.entries(questions.reduce((m, q) => ({ ...m, [q.type]: (m[q.type] || 0) + 1 }), {}))
   .map(([t, n]) => `${n} ${t.replace("_", " ")}`).join(", ");
+
+// ------------------------------------------------------------ test duration
+const DURATION_PRESETS = [15, 30, 45, 60];
+
+/** Test duration input: quick choices plus a box for any number of minutes (empty = no time limit). */
+function durationFieldHtml(id, minutes) {
+  const m = Number(minutes) || 0;
+  return `<div class="duration-field" data-duration>
+    <div class="duration-presets" role="group" aria-label="Quick choices">
+      <button type="button" class="chip-btn${m === 0 ? " active" : ""}" data-dur="0" data-icon="infinity">No time limit</button>
+      ${DURATION_PRESETS.map((n) => `<button type="button" class="chip-btn${m === n ? " active" : ""}" data-dur="${n}" data-icon="none">${n} min</button>`).join("")}
+    </div>
+    <div class="duration-custom"><input type="number" id="${id}" data-dur-input min="1" max="${MAX_DURATION_MIN}" step="1" inputmode="numeric" value="${m || ""}" placeholder="Custom" aria-label="Test duration in minutes"><span class="muted small">minutes</span></div>
+  </div>`;
+}
+
+/** Wires the quick-choice buttons of a duration field. onChange(minutes|null) gets null for an invalid entry. */
+function bindDurationField(root, onChange = () => {}) {
+  const box = root.querySelector("[data-duration]");
+  if (!box) return;
+  const input = box.querySelector("[data-dur-input]");
+  const paint = () => {
+    const v = readDuration(box);
+    box.querySelectorAll("[data-dur]").forEach((b) => b.classList.toggle("active", v !== null && Number(b.dataset.dur) === v));
+    onChange(v);
+  };
+  box.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-dur]");
+    if (!b) return;
+    input.value = b.dataset.dur === "0" ? "" : b.dataset.dur;
+    paint();
+  });
+  input.addEventListener("input", paint);
+}
+
+/** Minutes from a duration field: 0 = no time limit, null = not a whole number from 1 to 600. */
+function readDuration(root) {
+  const raw = String(root.querySelector("[data-dur-input]")?.value ?? "").trim();
+  if (raw === "") return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_DURATION_MIN ? n : null;
+}
+
+const durationBadge = (q) => (quizDuration(q)
+  ? `<span class="badge badge-info duration-badge" title="Time limit"><i class="fa-solid fa-stopwatch" aria-hidden="true"></i>${escapeHtml(durationLabel(quizDuration(q)))}</span>`
+  : '<span class="badge badge-muted duration-badge" title="No time limit"><i class="fa-solid fa-infinity" aria-hidden="true"></i>No limit</span>');
 
 export class QuizAdmin {
   constructor(container) {
@@ -63,6 +110,7 @@ export class QuizAdmin {
     this.tab = storage.get(TAB_KEY) ?? ALL;
     this.selected = new Set();
     this.qpage = 0;
+    this.qsize = getPageSize("quizzes");
     this.el.innerHTML = `
       <div class="card">
         <div class="card-head"><div><h2>Add quizzes</h2><p class="card-sub">Upload a question bank file.</p></div></div>
@@ -73,6 +121,12 @@ export class QuizAdmin {
           <span class="file-drop-sub">JSON · nothing is saved until you press Add</span>
         </label>
         <div data-q="preview"></div>
+      </div>
+
+      <div class="card cm-launch">
+        <span class="cm-launch-icon" aria-hidden="true"><i class="fa-solid fa-chalkboard-user"></i></span>
+        <div class="cm-launch-text"><h2>Live Classroom Mode</h2><p class="card-sub">Present a quiz on the projector and check answers with the class. Nothing is saved.</p></div>
+        <button type="button" class="btn btn-primary" data-q="live-pick" data-icon="play">Start Live Classroom</button>
       </div>
 
       <div class="card table-card quiz-table-card">
@@ -160,7 +214,14 @@ export class QuizAdmin {
     });
     this.$("clear-selection").addEventListener("click", () => { this.selected.clear(); this.renderList(); });
     this.$("move-selected").addEventListener("click", () => this.run(() => this.moveDialog([...this.selected])));
-    // 50 quizzes per page; sorting and filtering always use the whole list.
+    // 30 quizzes per page by default; sorting and filtering always use the whole list.
+    this.$("pager").addEventListener("change", (e) => {
+      if (!e.target.matches("[data-page-size]")) return;
+      const size = setPageSize("quizzes", e.target.value);
+      this.qpage = pageAfterResize(this.qpage, this.qsize, size, this.visibleQuizzes().length);
+      this.qsize = size;
+      this.renderList();
+    });
     this.$("pager").addEventListener("click", (e) => {
       const b = e.target.closest("[data-page]");
       if (!b || b.disabled) return;
@@ -191,6 +252,7 @@ export class QuizAdmin {
       this.$("tabs").querySelector(`[data-tab-id="${CSS.escape(tabs[j].dataset.tabId)}"]`)?.focus();
     });
     this.$("new-tab").addEventListener("click", () => this.run(() => this.newTab()));
+    this.$("live-pick").addEventListener("click", () => this.run(() => openClassroomPicker(this.classroomQuizzes())));
     this.$("tabs").addEventListener("scroll", () => this.updateTabFades(), { passive: true });
     // The tab row only scrolls sideways: a mouse wheel scrolls it left/right.
     this.$("tabs").addEventListener("wheel", (e) => {
@@ -228,6 +290,11 @@ export class QuizAdmin {
   }
 
   tabExists(id) { return id === ALL || teacher.categories.some((c) => c.id === id); }
+
+  /** Quizzes that can be presented in Live Classroom Mode: every quiz the user may open the answer key of. */
+  classroomQuizzes() {
+    return [...teacher.quizzes.values()].filter((q) => !q.archived && (isAdmin() || ownsQuiz(q) || quizForMyClasses(q)));
+  }
 
   /** The quizzes this page manages: all for the Admin, a teacher's own for a teacher. */
   myQuizzes() { return [...teacher.quizzes.values()].filter((q) => ownsQuiz(q)); }
@@ -414,8 +481,8 @@ export class QuizAdmin {
     // Forget selections that no longer exist.
     [...this.selected].forEach((id) => { if (!teacher.quizzes.has(id)) this.selected.delete(id); });
     const list = this.visibleQuizzes();
-    this.qpage = clampPage(this.qpage, list.length);
-    const shown = pageSlice(list, this.qpage);
+    this.qpage = clampPage(this.qpage, list.length, this.qsize);
+    const shown = pageSlice(list, this.qpage, this.qsize);
     const archivedCount = this.myQuizzes().filter((q) => q.archived && (this.tab === ALL || categoryOf(q, teacher.categories) === this.tab)).length;
     const hiddenArchived = archivedCount && !["archived", "all"].includes(this.filters.status);
     this.$("count").textContent = `${pluralize(list.length, "quiz", "quizzes")}${hiddenArchived ? ` · ${archivedCount} archived hidden` : ""}`;
@@ -429,7 +496,7 @@ export class QuizAdmin {
     }
     this.$("list").innerHTML = shown.length ? shown.map((q) => this.quizRow(q)).join("") : `<tr><td colspan="${isAdmin() ? 11 : 10}" class="empty">${escapeHtml(empty)}</td></tr>`;
     this.loadAttemptCounts(shown);
-    this.$("pager").innerHTML = pagerHtml({ page: this.qpage, total: list.length, label: "quizzes" });
+    this.$("pager").innerHTML = pagerHtml({ page: this.qpage, size: this.qsize, total: list.length, label: "quizzes", sizeKey: "quizzes" });
     const all = this.$("select-all");
     const selShown = list.filter((q) => this.selected.has(q.id)).length;
     all.checked = !!list.length && selShown === list.length;
@@ -486,7 +553,7 @@ export class QuizAdmin {
         <td class="col-check"><input type="checkbox" data-select="${id}"${sel ? " checked" : ""} aria-label="Select ${escapeHtml(q.title)}"></td>
         <td>
           <div class="quiz-title">${escapeHtml(q.title)}${q.merged ? ` ${kind}` : ""}</div>
-          <div class="small muted quiz-sub"><code>${id}</code>${q.merged ? ` · ${lessons.map((l) => escapeHtml(l.title)).join(" · ")}` : ""}</div>
+          <div class="small muted quiz-sub">${durationBadge(q)} <code>${id}</code>${q.merged ? ` · ${lessons.map((l) => escapeHtml(l.title)).join(" · ")}` : ""}</div>
         </td>
         <td class="nowrap">${gradeLabel(q.grade)}<div class="small muted">${sectionsLabel(q)}</div></td>
         <td class="nowrap">${cat ? escapeHtml(categoryName(cat, teacher.categories)) : '<span class="muted">—</span>'}</td>
@@ -499,6 +566,7 @@ export class QuizAdmin {
         <td class="actions-cell">
           ${q.archived ? "" : `<button type="button" class="btn btn-small" data-act="toggle" data-id="${id}">${q.active ? "Close" : "Open"}</button>`}
           <button type="button" class="btn btn-small" data-act="edit" data-id="${id}">Edit</button>
+          <button type="button" class="btn btn-small btn-live" data-act="live" data-id="${id}" data-icon="chalkboard-user" title="Live Classroom Mode: present this quiz to the class" aria-label="Live Classroom Mode for ${escapeHtml(q.title)}">Live</button>
           <details class="menu menu-right">
             <summary class="btn btn-small" aria-label="More actions">⋯</summary>
             <div class="menu-list">
@@ -519,6 +587,7 @@ export class QuizAdmin {
     const quiz = teacher.quizzes.get(btn.dataset.id);
     if (!quiz) return;
     const act = btn.dataset.act;
+    if (act === "live") { this.run(() => openClassroom(quiz)); return; }
     try {
       if (!ownsQuiz(quiz)) { appNotice("You can only change your own quizzes.", "error"); return; }
       if (act === "toggle") {
@@ -559,7 +628,8 @@ export class QuizAdmin {
     if (!values) return;
     const passChanged = (values.passPercent ?? null) !== (quiz.passPercent ?? null);
     const gradeChanged = values.grade !== (quiz.grade || "") || values.sections.join() !== (quiz.sections || []).join();
-    const meta = { title: values.title, grade: values.grade, sections: values.sections, description: values.description, passPercent: values.passPercent, updatedAt: serverTimestamp() };
+    const durationChanged = values.durationMin !== quizDuration(quiz);
+    const meta = { title: values.title, grade: values.grade, sections: values.sections, description: values.description, passPercent: values.passPercent, durationMin: values.durationMin, updatedAt: serverTimestamp() };
     const keyChanges = { title: values.title, passPercent: values.passPercent };
     // A new pass mark changes results, so give the answer key a new version
     // stamp: existing results then show "Needs regrading".
@@ -579,6 +649,7 @@ export class QuizAdmin {
     const notes = [];
     if (gradeChanged) notes.push("Only students of the chosen grade and sections see it.");
     if (passChanged) notes.push("Existing results now show Needs regrading so the new pass mark can be applied.");
+    if (durationChanged) notes.push(values.durationMin ? `Time limit: ${durationLabel(values.durationMin, { long: true })} for attempts started from now on.` : "No time limit for attempts started from now on.");
     appNotice(`Saved "${values.title}". ${notes.join(" ")}`.trim(), "success");
     await reloadQuizzes();
   }
@@ -642,7 +713,7 @@ export class QuizAdmin {
 
   async readFiles(files) {
     if (!files.length) { this.resetImport(); return; }
-    const imp = { lessons: [], errors: [], warnings: [], mode: "separate", mergeTitle: "", onCollision: "keep", open: false, categoryId: null, sections: {} };
+    const imp = { lessons: [], errors: [], warnings: [], mode: "separate", mergeTitle: "", onCollision: "keep", open: false, categoryId: null, sections: {}, durationMin: 0, durationTouched: false };
     for (const file of files) {
       let text;
       try { text = await file.text(); } catch { imp.errors.push(`${file.name} could not be read.`); continue; }
@@ -715,6 +786,11 @@ export class QuizAdmin {
 
       <h4>4. Options</h4>
       <div class="field">
+        <label for="impDuration">Test duration</label>
+        ${durationFieldHtml("impDuration", imp.durationMin)}
+        <p class="small muted">The timer starts when a student presses Begin. When it reaches zero, the quiz is submitted automatically.</p>
+      </div>
+      <div class="field">
         <label for="impTab">Add the new quizzes to this tab</label>
         <select id="impTab" data-imp="tab">
           ${[...teacher.categories.map((c) => [c.id, c.name]), [UNCATEGORIZED, "No tab (only under All quizzes)"]].map(([id, name]) => `<option value="${escapeHtml(id)}" ${id === imp.categoryId ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
@@ -733,6 +809,11 @@ export class QuizAdmin {
       <h4>5. Check and add</h4>
       <div data-imp="plan"></div>`;
     this.$("preview").innerHTML = html;
+    bindDurationField(this.$("preview"), (v) => {
+      imp.durationTouched = true;
+      imp.durationMin = v;
+      this.renderPlan();
+    });
     this.renderSections();
     this.renderPlan();
   }
@@ -795,6 +876,7 @@ export class QuizAdmin {
     const warnings = [];
     const included = imp.lessons.filter((l) => l.include);
     if (!included.length) problems.push("Tick at least one lesson.");
+    if (imp.durationMin === null) problems.push(`Test duration: enter whole minutes from 1 to ${MAX_DURATION_MIN}, or choose No time limit.`);
     included.filter((l) => !l.chosenGrade).forEach((l) => problems.push(`Choose a grade for "${l.title}".`));
     if (!isAdmin()) {
       [...new Set(included.map((l) => l.chosenGrade).filter(Boolean))]
@@ -835,7 +917,9 @@ export class QuizAdmin {
         action = "copy";
       }
       used.add(id);
-      return { quiz: { ...quiz, quizId: id, sections: (imp.sections[quiz.grade] || []).slice() }, id, base, existing, action };
+      // A replaced quiz keeps its time limit unless a duration was chosen here.
+      const durationMin = action === "replace" && !imp.durationTouched ? quizDuration(existing) : (imp.durationMin || 0);
+      return { quiz: { ...quiz, quizId: id, sections: (imp.sections[quiz.grade] || []).slice() }, id, base, existing, action, durationMin };
     });
     return { quizzes, problems, warnings };
   }
@@ -856,13 +940,14 @@ export class QuizAdmin {
       html += `
         <div class="table-wrap">
         <table class="data-table compact">
-          <thead><tr><th>Quiz</th><th>ID</th><th>Grade and sections</th><th class="num">Questions</th><th class="num">Marks</th><th>What happens</th></tr></thead>
+          <thead><tr><th>Quiz</th><th>ID</th><th>Grade and sections</th><th class="num">Questions</th><th class="num">Marks</th><th>Time limit</th><th>What happens</th></tr></thead>
           <tbody>${quizzes.map((p) => `<tr>
             <td>${escapeHtml(p.quiz.title)}${p.quiz.merged ? `<div class="small muted">Merged: ${p.quiz.lessons.map((l) => escapeHtml(l.title)).join(" + ")}</div>` : ""}</td>
             <td class="small"><code>${escapeHtml(p.id)}</code></td>
             <td class="nowrap">${gradeLabel(p.quiz.grade)}<div class="small muted">${sectionsLabel(p.quiz)}</div></td>
             <td class="num">${p.quiz.questions.length}</td>
             <td class="num">${p.quiz.questions.reduce((s, q) => s + q.marks, 0)}</td>
+            <td class="nowrap">${durationBadge({ durationMin: p.durationMin })}</td>
             <td>${actionText(p)}</td></tr>`).join("")}</tbody>
         </table>
         </div>`;
@@ -902,7 +987,7 @@ export class QuizAdmin {
       for (let i = 0; i < quizzes.length; i += QUIZZES_PER_BATCH) {
         const chunk = quizzes.slice(i, i + QUIZZES_PER_BATCH);
         const batch = writeBatch(db);
-        chunk.forEach(({ quiz, id, existing, action }) => {
+        chunk.forEach(({ quiz, id, existing, action, durationMin }) => {
           const replacing = action === "replace";
           // Ownership: new quizzes belong to whoever adds them; a replaced quiz keeps its owner.
           const owner = replacing && existing.ownerId
@@ -914,6 +999,7 @@ export class QuizAdmin {
             sections: quiz.sections || [],
             createdBy: replacing ? (existing.createdBy || owner.ownerName) : owner.ownerName,
             passPercent: quiz.passPercent ?? null,
+            durationMin: durationMin || 0,
             active: this.imp.open || (replacing && !!existing.active),
             archived: false,
             // replaced quizzes keep their tab; new ones go to the chosen tab
@@ -969,6 +1055,8 @@ function editDialog(quiz, grades, defaultPass) {
       <div class="field"><span class="label">Sections</span><div class="class-secs" id="eqSecs"></div></div>
       <div class="field"><label for="eqDesc">Information for students (optional)</label><textarea id="eqDesc" rows="3" maxlength="500"></textarea></div>
       <div class="field"><label for="eqPass">Pass mark % (leave empty for the school default, ${escapeHtml(defaultPass)}%)</label><input type="number" id="eqPass" min="1" max="100"></div>
+      <div class="field"><label for="eqDuration">Test duration</label>${durationFieldHtml("eqDuration", quizDuration(quiz))}
+        <p class="small muted">Applies to attempts started from now on. Students already taking the quiz keep their time.</p></div>
       <p class="small muted">To change questions, upload the file again and choose Replace.</p>
       <p class="small error-text" data-err></p>
       <div class="actions"><button type="button" class="btn" data-cancel>Cancel</button><button type="submit" class="btn btn-primary">Save</button></div>
@@ -995,6 +1083,7 @@ function editDialog(quiz, grades, defaultPass) {
   });
   q("#eqDesc").value = quiz.description || "";
   q("#eqPass").value = quiz.passPercent ?? "";
+  bindDurationField(backdrop);
   document.body.appendChild(backdrop);
   q("#eqName").focus();
   return new Promise((resolve) => {
@@ -1009,10 +1098,12 @@ function editDialog(quiz, grades, defaultPass) {
       const pass = passRaw === "" ? null : Number(passRaw);
       if (!title) { q("[data-err]").textContent = "Enter a title."; return; }
       if (pass !== null && !(pass >= 1 && pass <= 100)) { q("[data-err]").textContent = "The pass mark must be between 1 and 100."; return; }
+      const durationMin = readDuration(backdrop);
+      if (durationMin === null) { q("[data-err]").textContent = `Test duration: enter whole minutes from 1 to ${MAX_DURATION_MIN}, or choose No time limit.`; return; }
       const grade = q("#eqGrade").value;
       const sections = grade ? chosenSecs.filter((x) => mySections(teacher.settings, grade).includes(x)) : [];
       if (!isAdmin() && (!grade || !sections.length)) { q("[data-err]").textContent = "Choose a grade and at least one of your sections."; return; }
-      done({ title, grade, sections, description: q("#eqDesc").value.trim(), passPercent: pass });
+      done({ title, grade, sections, description: q("#eqDesc").value.trim(), passPercent: pass, durationMin });
     });
   });
 }

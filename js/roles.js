@@ -82,13 +82,29 @@ export function classPairs(scope = {}) {
   return pairs;
 }
 
-/** "Grade 6: A, B · Grade 7: A" */
-export function classesLabel(classes) {
+/**
+ * Display text for the sections chosen in one grade. When every section the
+ * grade has in School settings is chosen it says "All sections" (so a long
+ * list never crowds the screen). The current settings are used each time, so
+ * the wording follows sections being added, removed or renamed. Only the
+ * text changes: the stored list stays exactly as it is.
+ *   secs empty -> emptyText (quizzes: "All sections"; teachers: "None")
+ */
+export function sectionsText(settings, grade, secs, { emptyText = "All sections", prefix = "" } = {}) {
+  const chosen = [...new Set((Array.isArray(secs) ? secs : []).map(String).filter(Boolean))];
+  if (!chosen.length) return emptyText;
+  const all = (settings?.sectionsByGrade && settings.sectionsByGrade[String(grade)]) || [];
+  if (all.length && all.every((x) => chosen.includes(String(x)))) return "All sections";
+  return `${prefix}${chosen.join(", ")}`;
+}
+
+/** "Grade 6: A, B · Grade 7: All sections" */
+export function classesLabel(classes, settings = null) {
   const entries = Object.entries(cleanClasses(classes));
   if (!entries.length) return "No classes assigned";
   return entries
     .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-    .map(([g, secs]) => `Grade ${g}: ${secs.join(", ")}`).join(" · ");
+    .map(([g, secs]) => `Grade ${g}: ${settings ? sectionsText(settings, g, secs) : secs.join(", ")}`).join(" · ");
 }
 
 /** A quiz belongs to the user (teachers), or any quiz (Admin). */

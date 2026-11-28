@@ -49,6 +49,19 @@ const TEACHER = [
       "Only students of the quiz's grade and ticked sections see it.",
       "Change the title, grade, sections or pass mark with <b>Edit</b>. To change questions, upload the file again and choose Replace."
     ])],
+    ["Set a time limit (test duration)", bullets([
+      "When adding a quiz, choose a <b>Test duration</b>: 15, 30, 45 or 60 minutes, any number of minutes, or <b>No time limit</b>. Change or remove it later with <b>Edit</b>.",
+      "The timer starts when the student presses <b>Begin</b>, not on the instructions page. Refreshing or reopening the quiz never gives extra time.",
+      "When the time is up, the quiz is submitted automatically, also with unanswered questions.",
+      "A changed time limit applies to attempts started afterwards. If a student closed the quiz and never came back, open the ⋯ menu of that record and press <b>Submit (time is up)</b>."
+    ])],
+    ["Live Classroom Mode (projector)", bullets([
+      "On <b>Quizzes</b>, press <b>Start Live Classroom</b> and choose a quiz, or press <b>Live</b> on a quiz row.",
+      "Choose an answer with the class: it turns <b>green</b> (Correct!) or <b>red</b> (Incorrect!) at once, and the correct answer is shown in green.",
+      "<b>Try again</b> clears the answer, <b>Reveal answer</b> / <b>Hide answer</b> shows or hides it, <b>Show explanation</b> appears when the question has one.",
+      "Keys: ← → move, 1–4 or A–D choose, R try again, S reveal, E explanation, F fullscreen, Esc exit.",
+      "Nothing is saved: no attempt, result or statistic is created or changed, and there is no exam timer (the optional activity timer only counts down)."
+    ])],
     ["Allow or stop retakes", bullets([
       "Open a student's result (Results → the student's name) and choose <b>More → Allow retake</b>.",
       "The old attempt is kept as a <i>previous attempt</i> and the student can start again.",
@@ -141,6 +154,19 @@ const ADMIN = [
       "You can open, close, edit, archive or delete any quiz. Quizzes made before the upgrade are marked <i>Admin (older quiz)</i>.",
       "When you add a quiz you may leave <b>All sections</b> ticked, or choose sections.",
       "The Attempts column counts student attempts per quiz."
+    ])],
+    ["Set a time limit (test duration)", bullets([
+      "When adding a quiz, choose a <b>Test duration</b>: 15, 30, 45 or 60 minutes, any number of minutes, or <b>No time limit</b>. Change or remove it later with <b>Edit</b>.",
+      "The timer starts when the student presses <b>Begin</b>, not on the instructions page. Refreshing or reopening the quiz never gives extra time.",
+      "When the time is up, the quiz is submitted automatically, also with unanswered questions.",
+      "A changed time limit applies to attempts started afterwards. If a student closed the quiz and never came back, open the ⋯ menu of that record and press <b>Submit (time is up)</b>."
+    ])],
+    ["Live Classroom Mode (projector)", bullets([
+      "On <b>Quizzes</b>, press <b>Start Live Classroom</b> and choose a quiz, or press <b>Live</b> on a quiz row.",
+      "Choose an answer with the class: it turns <b>green</b> (Correct!) or <b>red</b> (Incorrect!) at once, and the correct answer is shown in green.",
+      "<b>Try again</b> clears the answer, <b>Reveal answer</b> / <b>Hide answer</b> shows or hides it, <b>Show explanation</b> appears when the question has one.",
+      "Keys: ← → move, 1–4 or A–D choose, R try again, S reveal, E explanation, F fullscreen, Esc exit.",
+      "Nothing is saved: no attempt, result or statistic is created or changed, and there is no exam timer (the optional activity timer only counts down)."
     ])]
   ]],
   ["Students and records", [
@@ -148,6 +174,12 @@ const ADMIN = [
       "<b>Student record</b> lists registered students. Search by name or roll number, filter by grade and section.",
       "Students register themselves the first time they use the student page, or press <b>Add student</b>.",
       "Students marked <i>Not registered</i> have results but no record yet: open the ⋯ menu and choose <b>Register this student</b>."
+    ])],
+    ["Act on many students at once (bulk)", bullets([
+      "On <b>Student record</b>, tick the box next to each student, or tick the box in the header to select the whole page. <b>Select all … shown</b> selects every student that matches the filters and search.",
+      "The selection stays while you change pages, sorting or search. <b>Clear</b> removes it.",
+      "Then use the blue bar: <b>Register</b> (students marked Not registered, with the name and roll number shown), <b>Print</b> records or records with answers, <b>Export</b> the student list, quiz records (CSV) or a backup (JSON), and under <b>More</b>: <b>Archive quiz records</b>, <b>Delete quiz records</b> or <b>Delete students</b>.",
+      "Each action asks once for all selected students. Deleting students keeps their quiz records. Editing a name or roll number is done one student at a time, because each roll number must stay unique."
     ])],
     ["See a student's answer sheet", bullets([
       "Open <b>Student record</b>, open the student, and press <b>Answer sheet</b> next to any test. Teachers can do the same for their classes.",
@@ -204,6 +236,9 @@ const KEYWORDS = {
   "Organise quizzes in tabs": "category categories folder term organize",
   "Open and close quizzes": "start stop publish hide quiz available",
   "Allow or stop retakes": "retake again redo second attempt reattempt",
+  "Set a time limit (test duration)": "timer time limit duration minutes countdown timed clock auto submit",
+  "Live Classroom Mode (projector)": "live classroom projector present teach whiteboard interactive class show answers fullscreen",
+  "Act on many students at once (bulk)": "bulk select multiple many students tick checkbox select all register delete archive export print several",
   "Grade your students' tests": "grade grading mark marks marking score check evaluate result",
   "View student results": "results scores marks accept decline review",
   "See a student's answer sheet": "answer sheet answers responses paper copy questions correct wrong",
@@ -226,8 +261,8 @@ const KEYWORDS = {
 };
 
 const SUGGESTIONS = {
-  teacher: ["Grade tests", "Answer sheet", "Retake", "Add a quiz", "Live updates", "Wrong name", "Password", "Shortcuts"],
-  admin: ["Add teacher", "Reset password", "Answer sheet", "Print or export", "Rename a student", "Backup", "Live updates", "Shortcuts"]
+  teacher: ["Grade tests", "Answer sheet", "Time limit", "Live Classroom", "Add a quiz", "Retake", "Wrong name", "Shortcuts"],
+  admin: ["Add teacher", "Reset password", "Time limit", "Live Classroom", "Answer sheet", "Print or export", "Rename a student", "Backup"]
 };
 
 const plain = (html) => String(html).replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();

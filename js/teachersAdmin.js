@@ -15,7 +15,7 @@ import {
   createAuthAccount, STAFF_EMAIL_DOMAIN
 } from "./firebase.js";
 import { USERNAME_PATTERN, logActivity } from "./auth.js";
-import { session, cleanClasses, classesLabel } from "./roles.js";
+import { session, cleanClasses, classesLabel, sectionsText } from "./roles.js";
 import { teacher, appNotice, onTeacherChange, reloadQuizzes } from "./teacherState.js";
 import { sortRows, nextSort, paintSortHeaders } from "./tableSort.js";
 import { escapeHtml, friendlyError, confirmDialog, formatDate, formatDateTime, normalizeName, pluralize, skeletonRows, sectionsFor, formModal } from "./utilities.js";
@@ -26,7 +26,7 @@ const MIN_PASSWORD = 8;
 const VALUE = {
   name: (t) => t.name,
   username: (t) => t.username,
-  classes: (t) => classesLabel(t.classes),
+  classes: (t) => classesLabel(t.classes, teacher.settings),
   status: (t) => (t.status === "disabled" ? 1 : 0),
   created: (t) => t.createdAt?.toMillis?.() ?? null
 };
@@ -171,7 +171,7 @@ export class TeachersAdmin {
       return `<tr class="${disabled ? "row-muted" : ""}">
         <td class="name-cell"><b>${escapeHtml(t.name)}</b></td>
         <td><code>${escapeHtml(t.username)}</code></td>
-        <td>${classes.length ? classes.map(([g, secs]) => `<div class="small"><b>Grade ${escapeHtml(g)}:</b> ${secs.map(escapeHtml).join(", ")}</div>`).join("") : '<span class="small muted">None</span>'}</td>
+        <td>${classes.length ? classes.map(([g, secs]) => `<div class="small"><b>Grade ${escapeHtml(g)}:</b> ${escapeHtml(sectionsText(teacher.settings, g, secs))}</div>`).join("") : '<span class="small muted">None</span>'}</td>
         <td>${disabled ? '<span class="badge">Deactivated</span>' : '<span class="badge badge-success">Active</span>'}</td>
         <td class="small nowrap" title="${escapeHtml(formatDateTime(t.createdAt))}">${escapeHtml(formatDate(t.createdAt))}</td>
         <td class="actions-cell">

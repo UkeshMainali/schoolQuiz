@@ -147,6 +147,22 @@
     </div>
   </div>
 
+  <!-- Time left (timed quizzes only). Worked out from the server's start time, not from this device's clock. -->
+  <div id="quizTimer" class="quiz-timer" role="timer" aria-label="Time left" hidden>
+    <i class="fa-solid fa-stopwatch" aria-hidden="true"></i><span class="quiz-timer-label">Time left</span><b id="quizTimerText">--:--</b>
+  </div>
+  <div id="timerAnnounce" class="sr-only" aria-live="assertive"></div>
+
+  <!-- The time limit is over -->
+  <div id="timeUpModal" class="modal-backdrop" hidden>
+    <div class="modal time-up-modal" role="alertdialog" aria-modal="true" aria-labelledby="timeUpTitle">
+      <div class="time-up-icon" aria-hidden="true"><i class="fa-solid fa-hourglass-end"></i></div>
+      <h2 id="timeUpTitle">Time is up</h2>
+      <p id="timeUpText">Submitting your answers…</p>
+      <div class="actions"><button type="button" class="btn btn-primary" id="timeUpRetry" hidden>Try again now</button></div>
+    </div>
+  </div>
+
   <div id="offlineBanner" class="offline-banner" hidden>You are offline. Keep going: your answers are saved on this device.</div>
 
   <script type="module" src="js/quiz.js"></script>

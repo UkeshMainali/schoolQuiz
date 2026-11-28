@@ -11,9 +11,9 @@
 //        answer sheet, grade and review, and send requests for the rest.
 // Both roles can open a test's answer sheet right here and grade it.
 
-import { fetchStudentRecords, queryAllAttempts, archiveRecords, deleteRecords, attemptIdParts, setReviewStatus } from "./records.js";
+import { fetchStudentRecords, queryAllAttempts, archiveRecords, deleteRecords, attemptIdParts, setReviewStatus, submitExpiredAttempts } from "./records.js";
 import { gradeAttempts, gradeAttempt, loadAnswerKey, clearKeyCache } from "./grading.js";
-import { pagerHtml, pageSlice, clampPage } from "./pager.js";
+import { pagerHtml, pageSlice, clampPage, getPageSize, setPageSize, pageAfterResize } from "./pager.js";
 import { toRow } from "./recordsView.js";
 import { performance, studentKey as rowKey } from "./analytics.js";
 import { teacher, appNotice, onTeacherChange } from "./teacherState.js";
@@ -59,6 +59,10 @@ export class StudentRecordView {
     this.groups = [];
     this.sort = { key: "section", dir: "asc" };
     this.detailSort = { key: "quizTitle", dir: "asc" };
+    this.listSize = getPageSize("students");
+    this.detailSize = getPageSize("student-history");
+    this.detailPage = 0;
+    this.selected = new Set(); // admin bulk selection (group keys), kept across pages, sort and search
     const saved = storage.get("cq_history_scope") || {};
     this.scope = { grade: saved.grade || "", section: saved.section || "", archive: isAdmin() && saved.archive !== false };
     this.el.innerHTML = `
@@ -87,6 +91,25 @@ export class StudentRecordView {
     });
     this.$("add")?.addEventListener("click", () => this.run(() => this.addStudent()));
     this.el.addEventListener("click", (e) => this.onClick(e));
+    this.el.addEventListener("change", (e) => {
+      if (e.target.matches("[data-sel]")) { this.toggleSelect([e.target.dataset.sel], e.target.checked); return; }
+      if (e.target.matches("[data-sel-page]")) {
+        this.toggleSelect(pageSlice(this.visibleGroups(), this.listPage || 0, this.listSize).map((g) => g.key), e.target.checked);
+        return;
+      }
+      if (!e.target.matches("[data-page-size]")) return;
+      if (this.current) {
+        const size = setPageSize("student-history", e.target.value);
+        this.detailPage = pageAfterResize(this.detailPage, this.detailSize, size, this.detailAll.length);
+        this.detailSize = size;
+        this.renderDetail(this.detailStudent, this.detailWho, this.detailAll);
+      } else {
+        const size = setPageSize("students", e.target.value);
+        this.listPage = pageAfterResize(this.listPage || 0, this.listSize, size, this.visibleGroups().length);
+        this.listSize = size;
+        this.renderList();
+      }
+    });
     document.addEventListener("click", (e) => {
       this.el.querySelectorAll("details.menu[open]").forEach((d) => { if (!d.contains(e.target)) d.open = false; });
     });
@@ -212,6 +235,7 @@ export class StudentRecordView {
     this.loadedKey = JSON.stringify(this.scope);
     if (!quiet) {
       this.listPage = 0;
+      this.selected.clear();
       this.$("list").innerHTML = skeleton("table", { cols: 8, rows: 8 });
     }
     try {
@@ -248,6 +272,8 @@ export class StudentRecordView {
       perf: performance(g.rows),
       latestMs: Math.max(0, ...g.rows.map((r) => r.submittedMs || 0)) || null
     }));
+    const keys = new Set(this.groups.map((g) => g.key));
+    [...this.selected].forEach((k) => { if (!keys.has(k)) this.selected.delete(k); });
   }
 
   visibleGroups() {
@@ -267,8 +293,10 @@ export class StudentRecordView {
   renderList() {
     if (this.current) return;
     const list = this.visibleGroups();
-    this.listPage = clampPage(this.listPage || 0, list.length);
-    const pageList = pageSlice(list, this.listPage);
+    this.listPage = clampPage(this.listPage || 0, list.length, this.listSize);
+    const pageList = pageSlice(list, this.listPage, this.listSize);
+    const bulk = isAdmin();
+    const pageAll = pageList.length > 0 && pageList.every((g) => this.selected.has(g.key));
     const box = this.$("list");
     if (!this.groups.length) {
       box.innerHTML = `<div class="card empty">No students in ${escapeHtml(this.scopeText())} yet.${isAdmin() ? " Students are added when they register on the student page, or press Add student." : ""}</div>`;
@@ -295,12 +323,15 @@ export class StudentRecordView {
           <span class="small muted">${pluralize(list.length, "student")}${list.length !== this.groups.length ? ` of ${this.groups.length}` : ""}${this.capped ? " (first 3,000 records only: choose a section)" : ""}</span>
           <div class="table-actions">${adminTools}</div>
         </div>
+        ${bulk ? this.bulkBarHtml(list) : ""}
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th data-sort="name">Student</th><th data-sort="rollNum" class="num">Roll</th><th data-sort="grade">Grade</th><th data-sort="section">Section</th><th data-sort="attempted" class="num" title="Quizzes attempted">Quizzes</th><th data-sort="counted" class="num" title="Graded, not declined, latest attempt per quiz">Counted</th><th data-sort="overall" class="num" title="Total marks ÷ total possible">Overall</th><th data-sort="average" class="num" title="Mean of quiz percentages">Average</th><th data-sort="latestMs">Last submitted</th><th class="actions-col"></th></tr></thead>
+            <thead><tr>${bulk ? `<th class="sel-col"><input type="checkbox" data-sel-page aria-label="Select all students on this page"${pageAll ? " checked" : ""}></th>` : ""}<th data-sort="name">Student</th><th data-sort="rollNum" class="num">Roll</th><th data-sort="grade">Grade</th><th data-sort="section">Section</th><th data-sort="attempted" class="num" title="Quizzes attempted">Quizzes</th><th data-sort="counted" class="num" title="Graded, not declined, latest attempt per quiz">Counted</th><th data-sort="overall" class="num" title="Total marks ÷ total possible">Overall</th><th data-sort="average" class="num" title="Mean of quiz percentages">Average</th><th data-sort="latestMs">Last submitted</th><th class="actions-col"></th></tr></thead>
             <tbody>${pageList.map((g) => {
               const other = g.names.filter((n) => n !== g.name);
-              return `<tr>
+              const on = bulk && this.selected.has(g.key);
+              return `<tr${on ? ' class="is-selected"' : ""}>
+                ${bulk ? `<td class="sel-col"><input type="checkbox" data-sel="${escapeHtml(g.key)}" aria-label="Select ${escapeHtml(g.name)}"${on ? " checked" : ""}></td>` : ""}
                 <td class="name-cell"><button type="button" class="link-btn" data-open="${escapeHtml(g.key)}">${escapeHtml(g.name)}</button>
                   ${g.student ? "" : '<div><span class="badge badge-warning">Not registered</span></div>'}
                   ${other.length ? `<div class="small muted" title="Names typed on quizzes">also: ${escapeHtml(other.join(", "))}</div>` : ""}</td>
@@ -314,12 +345,178 @@ export class StudentRecordView {
                 <td class="small nowrap">${g.latestMs ? escapeHtml(formatDateTime(new Date(g.latestMs))) : "—"}</td>
                 <td class="col-actions">${this.rowMenu(g)}</td>
               </tr>`;
-            }).join("") || '<tr><td colspan="10" class="empty">No student matches this search.</td></tr>'}</tbody>
+            }).join("") || `<tr><td colspan="${bulk ? 11 : 10}" class="empty">No student matches this search.</td></tr>`}</tbody>
           </table>
         </div>
-        ${pagerHtml({ page: this.listPage, total: list.length, label: "students" })}
+        ${pagerHtml({ page: this.listPage, size: this.listSize, total: list.length, label: "students", sizeKey: "students" })}
       </div>`;
     paintSortHeaders(box.querySelector("table"), this.sort);
+    const pageBox = box.querySelector("[data-sel-page]");
+    if (pageBox) pageBox.indeterminate = !pageAll && pageList.some((g) => this.selected.has(g.key));
+  }
+
+  // ------------------------------------------------------ bulk actions (admin)
+
+  toggleSelect(keys, on) {
+    keys.forEach((k) => (on ? this.selected.add(k) : this.selected.delete(k)));
+    this.renderList();
+  }
+
+  /** The selected students, in the order shown. */
+  selectedGroups() {
+    return this.groups.filter((g) => this.selected.has(g.key));
+  }
+
+  bulkBarHtml(list) {
+    const n = this.selected.size;
+    const shownSel = list.filter((g) => this.selected.has(g.key)).length;
+    if (!n) {
+      return `<div class="bulk-bar is-empty"><span class="small muted"><i class="fa-regular fa-square-check" aria-hidden="true"></i> Tick students to act on several at once.</span>${list.length ? `<button type="button" class="link-btn small" data-bulk="select-all">Select all ${pluralize(list.length, "student")} shown</button>` : ""}</div>`;
+    }
+    const sel = this.selectedGroups();
+    const unreg = sel.filter((g) => !g.student).length;
+    const reg = sel.length - unreg;
+    const recs = sel.reduce((t, g) => t + g.rows.length, 0);
+    const active = sel.reduce((t, g) => t + g.rows.filter((r) => !r.archived).length, 0);
+    const b = (act, label, icon, opts = {}) => `<button type="button" data-bulk="${act}" data-icon="none"${opts.disabled ? " disabled" : ""} class="${opts.cls || ""}"><i class="fa-solid fa-${icon}" aria-hidden="true"></i> ${label}</button>`;
+    return `
+      <div class="bulk-bar" role="region" aria-label="Bulk actions">
+        <div class="bulk-count"><strong>${pluralize(n, "student")} selected</strong>${shownSel !== n ? `<span class="small muted"> (${shownSel} shown)</span>` : ""}
+          ${shownSel < list.length ? `<button type="button" class="link-btn small" data-bulk="select-all">Select all ${list.length} shown</button>` : ""}
+          <button type="button" class="link-btn small" data-bulk="clear">Clear</button></div>
+        <div class="bulk-actions">
+          ${unreg ? `<button type="button" class="btn btn-small btn-primary" data-bulk="register" data-icon="user-check">Register ${unreg}</button>` : ""}
+          <details class="menu">
+            <summary class="btn btn-small" data-icon="print">Print</summary>
+            <div class="menu-list">
+              ${b("print", `Records (${pluralize(recs, "quiz record")})`, "file-lines", { disabled: !recs })}
+              ${b("print-answers", "Records with answers", "list-check", { disabled: !recs })}
+            </div>
+          </details>
+          <details class="menu">
+            <summary class="btn btn-small" data-icon="file-export">Export</summary>
+            <div class="menu-list">
+              ${b("export-students", "Student list (CSV)", "users")}
+              ${b("export", "Quiz records (CSV)", "file-csv", { disabled: !recs })}
+              ${b("backup", "Backup of quiz records (JSON)", "box-archive", { disabled: !active })}
+            </div>
+          </details>
+          <details class="menu">
+            <summary class="btn btn-small">More</summary>
+            <div class="menu-list">
+              ${unreg ? b("register", `Register ${pluralize(unreg, "student")}`, "user-check") : ""}
+              ${b("archive", `Archive quiz records (${active})`, "box-archive", { disabled: !active })}
+              ${b("delete-records", `Delete quiz records (${recs})…`, "trash-can", { disabled: !recs, cls: "danger" })}
+              ${b("delete", `Delete ${pluralize(reg, "student")}…`, "user-xmark", { disabled: !reg, cls: "danger" })}
+            </div>
+          </details>
+        </div>
+      </div>`;
+  }
+
+  async bulkAction(act) {
+    if (act === "select-all") { this.visibleGroups().forEach((g) => this.selected.add(g.key)); this.renderList(); return; }
+    if (act === "clear") { this.selected.clear(); this.renderList(); return; }
+    const sel = this.selectedGroups();
+    if (!sel.length) { appNotice("Select one or more students first.", "info"); return; }
+    const who = pluralize(sel.length, "student");
+    const allRows = sel.flatMap((g) => g.rows);
+    const activeRows = allRows.filter((r) => !r.archived);
+    const pick = (rows) => rows.map((r) => ({ id: r.id, attempt: r.attempt, result: r.result }));
+    const stamp = new Date().toISOString().slice(0, 10);
+    switch (act) {
+      case "print": return this.print(allRows, false, `Student records (${who})`);
+      case "print-answers": return this.print(allRows, true, `Student records with answers (${who})`);
+      case "export": return this.exportRows(allRows, `selected-student-records`);
+      case "export-students": return this.exportStudents(sel, "selected-students");
+      case "backup":
+        if (!activeRows.length) { appNotice("There are no active quiz records to back up.", "info"); return undefined; }
+        downloadFile(`selected-students_backup_${stamp}.json`, buildBackup(pick(activeRows), "active"), "application/json");
+        appNotice(`Backup of ${pluralize(activeRows.length, "record")} downloaded.`, "success");
+        return undefined;
+      case "register": return this.bulkRegister(sel.filter((g) => !g.student));
+      case "archive": {
+        if (!activeRows.length) { appNotice("There are no active quiz records to archive.", "info"); return undefined; }
+        const ok = await confirmDialog({ title: `Archive ${pluralize(activeRows.length, "quiz record")} of ${who}?`, text: "They move to the Archive. You can restore them later. The student records stay.", okText: "Archive" });
+        if (!ok) return undefined;
+        appNotice(`Archiving ${pluralize(activeRows.length, "record")}…`, "info");
+        await archiveRecords(pick(activeRows));
+        logActivity("records_archived", `Archived ${activeRows.length} quiz records of ${who} (bulk)`);
+        appNotice(`Archived ${pluralize(activeRows.length, "record")} of ${who}.`, "success");
+        return this.afterBulk();
+      }
+      case "delete-records": {
+        const archived = allRows.filter((r) => r.archived);
+        const res = await confirmDialog({
+          title: `Delete ${pluralize(allRows.length, "quiz record")} of ${who}?`, text: "This permanently deletes them. It cannot be undone. The student records stay.",
+          okText: "Delete records", danger: true, option: { label: "Download a backup file first (recommended)", checked: true }, check: `Yes, delete ${pluralize(allRows.length, "record")}`
+        });
+        if (!res) return undefined;
+        if (res.option && activeRows.length) downloadFile(`selected-students_backup_${stamp}.json`, buildBackup(pick(activeRows), "active"), "application/json");
+        appNotice(`Deleting ${pluralize(allRows.length, "record")}…`, "info");
+        if (activeRows.length) await deleteRecords("active", activeRows);
+        if (archived.length) await deleteRecords("archive", archived);
+        logActivity("records_deleted", `Deleted ${allRows.length} quiz records of ${who} (bulk)`);
+        appNotice(`Deleted ${pluralize(allRows.length, "record")} of ${who}.`, "success");
+        return this.afterBulk();
+      }
+      case "delete": {
+        const reg = sel.filter((g) => g.student);
+        if (!reg.length) { appNotice("None of the selected students is registered.", "info"); return undefined; }
+        const skipped = sel.length - reg.length;
+        const res = await confirmDialog({
+          title: `Delete ${pluralize(reg.length, "student record")}?`,
+          text: `Their quiz records are kept and show the name typed on each quiz. Their roll numbers become free for new registrations.${skipped ? ` ${pluralize(skipped, "selected row")} not registered will be skipped.` : ""}`,
+          okText: "Delete students", danger: true, check: `Yes, delete ${pluralize(reg.length, "student")}`
+        });
+        if (!res) return undefined;
+        let done = 0; const failed = [];
+        for (const g of reg) {
+          try { await deleteStudent(g.student); done++; } catch (err) { console.error(err); failed.push(g.name); }
+          if (reg.length > 5) appNotice(`Deleting students… ${done + failed.length} of ${reg.length}`, "info");
+        }
+        if (done) logActivity("student_deleted", `Deleted ${done} student records (bulk): ${reg.filter((g) => !failed.includes(g.name)).map((g) => `${g.name} (${g.grade} ${g.section} roll ${g.rollNo})`).join(", ").slice(0, 900)}`);
+        appNotice(failed.length ? `Deleted ${pluralize(done, "student")}. Could not delete: ${failed.join(", ")}.` : `Deleted ${pluralize(done, "student")}. Their quiz records were kept.`, failed.length ? "error" : "success");
+        return this.afterBulk();
+      }
+      default: return undefined;
+    }
+  }
+
+  /** Registers records that are not linked to a student, using the name, class and roll on them. */
+  async bulkRegister(list) {
+    if (!list.length) { appNotice("All selected students are already registered.", "info"); return; }
+    const ok = await confirmDialog({
+      title: `Register ${pluralize(list.length, "student")}?`,
+      text: "Each one is registered with the name, grade, section and roll number shown in the list, and their older quiz records are linked. To change a name or roll number first, register that student on their own from the ⋯ menu.",
+      okText: `Register ${list.length}`
+    });
+    if (!ok) return;
+    let done = 0; const problems = [];
+    for (const g of list) {
+      const name = normalizeName(g.name);
+      const { roll, error } = validateRoll(g.rollNo, teacher.settings, g.grade, g.section);
+      if (name.length < 2 || error) { problems.push(`${g.name || "(no name)"}: ${error || "name too short"}`); continue; }
+      try {
+        const s = await createStudent({ name, grade: g.grade, section: g.section, rollNo: roll });
+        await linkOldAttempts(s);
+        done++;
+      } catch (err) {
+        console.error(err);
+        problems.push(`${g.name} (roll ${g.rollNo}): ${err?.code === "taken" ? "roll number already registered" : friendlyError(err)}`);
+      }
+      if (list.length > 3) appNotice(`Registering… ${done + problems.length} of ${list.length}`, "info");
+    }
+    if (done) logActivity("student_created", `Registered ${done} students from existing records (bulk)`);
+    appNotice(problems.length ? `Registered ${pluralize(done, "student")}. Not registered: ${problems.join("; ")}.` : `Registered ${pluralize(done, "student")}. Their records are linked.`, problems.length ? "error" : "success");
+    await this.afterBulk();
+  }
+
+  async afterBulk() {
+    this.selected.clear();
+    this.cache.clear();
+    this.onChanged?.();
+    await this.load({ quiet: true });
   }
 
   rowMenu(g) {
@@ -368,6 +565,7 @@ export class StudentRecordView {
       ? { id: student.id, grade: student.grade, section: student.section, rollNo: student.rollNo }
       : { grade: target.grade, section: target.section, rollNo: target.rollNo };
     this.current = student ? { student } : { grade: who.grade, section: who.section, rollNo: who.rollNo };
+    if (!quiet) this.detailPage = 0;
     const token = this.current;
     this.$("list").hidden = true;
     const box = this.$("detail");
@@ -393,79 +591,113 @@ export class StudentRecordView {
     this.detailRows = sortRows(rows, this.detailSort, {
       tieBreak: (a, b) => String(a.quizTitle).localeCompare(String(b.quizTitle), undefined, { numeric: true }) || ((a.submittedMs || Infinity) - (b.submittedMs || Infinity))
     });
-    const back = '<button type="button" class="btn btn-small btn-back" data-act="back">← All students</button>';
+    this.detailPage = clampPage(this.detailPage || 0, this.detailRows.length, this.detailSize);
+    const pageRows = pageSlice(this.detailRows, this.detailPage, this.detailSize);
     const name = student?.name || rows[0]?.studentName || "Student";
     const typed = [...new Set(rows.map((r) => r.typedName).filter((n) => n && n !== name))];
     const previous = (student?.previousNames || []).filter((n) => n !== name);
     const perf = performance(rows);
+    const pass = Number(teacher.settings.passPercent) || 40;
     const k = escapeHtml(student ? `id:${student.id}` : `${who.grade}|${who.section}|${who.rollNo}`);
-    const btn = (act, label, cls = "", icon = "") => `<button type="button" class="btn btn-small ${cls}" data-gact="${act}" data-key="${k}"${icon ? ` data-icon="${icon}"` : ""}>${label}</button>`;
+    const btn = (act, label, cls = "", icon = "") => `<button type="button" class="btn ${cls}" data-gact="${act}" data-key="${k}"${icon ? ` data-icon="${icon}"` : ""}>${label}</button>`;
     const tools = isAdmin() ? `
-      <div class="action-group">
         ${student ? btn("edit", "Edit details", "btn-primary", "pen") : btn("register", "Register this student", "btn-primary", "user-plus")}
-        <details class="menu"><summary class="btn btn-small">Print</summary><div class="menu-list">
+        <details class="menu"><summary class="btn">Print</summary><div class="menu-list">
           <button type="button" data-act="print-one">Record</button><button type="button" data-act="print-one-answers">Record with answers</button></div></details>
-        <details class="menu"><summary class="btn btn-small">Export</summary><div class="menu-list">
+        <details class="menu"><summary class="btn">Export</summary><div class="menu-list">
           <button type="button" data-gact="export" data-key="${k}">Quiz records (CSV)</button><button type="button" data-gact="backup" data-key="${k}">Backup file (JSON)</button></div></details>
-        <details class="menu menu-right"><summary class="btn btn-small">More</summary><div class="menu-list">
+        <details class="menu menu-right"><summary class="btn">More</summary><div class="menu-list">
           ${rows.some((r) => !r.archived) ? `<button type="button" data-gact="archive" data-key="${k}">Archive quiz records</button>` : ""}
           ${student ? `<button type="button" data-gact="delete" data-key="${k}" class="danger">Delete student…</button>` : ""}
-          ${rows.length ? `<button type="button" data-gact="delete-records" data-key="${k}" class="danger">Delete quiz records…</button>` : ""}</div></details>
-      </div>` : `<div class="action-group">${btn("request", "Request a change", "", "paper-plane")}</div>`;
+          ${rows.length ? `<button type="button" data-gact="delete-records" data-key="${k}" class="danger">Delete quiz records…</button>` : ""}</div></details>`
+      : btn("request", "Request a change", "", "paper-plane");
     const toGrade = rows.filter((r) => gradable(r) && r.grading !== "graded").length;
-    const gradeAll = toGrade ? `<button type="button" class="btn btn-small btn-primary" data-act="grade-student" data-icon="clipboard-check">Grade ${toGrade === 1 ? "1 test" : `${toGrade} tests`}</button>` : "";
+    const gradeAll = toGrade ? `<button type="button" class="btn btn-success" data-act="grade-student" data-icon="clipboard-check">Grade ${toGrade === 1 ? "1 test" : `${toGrade} tests`}</button>` : "";
+    const counted = rows.filter((r) => perf.countedIds.has(r.id));
+    const passedN = counted.filter((r) => r.passed === true).length;
+    const failedN = counted.filter((r) => r.passed === false).length;
+    const inProgress = rows.filter((r) => r.grading === "in_progress").length;
+    const initials = String(name).split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w.charAt(0).toUpperCase()).join("") || "?";
+    const tone = (p) => (p === null || p === undefined ? "" : p >= pass ? "is-good" : "is-low");
+    const meter = (p) => (p === null || p === undefined ? "" : `<span class="sr-meter ${tone(p)}" aria-hidden="true"><span style="width:${Math.max(0, Math.min(100, p))}%"></span></span>`);
+    const kpi = (icon, color, label, value, sub = "", extra = "") => `
+        <div class="sr-kpi sr-kpi-${color}">
+          <span class="sr-kpi-icon" aria-hidden="true"><i class="fa-solid fa-${icon}"></i></span>
+          <div class="sr-kpi-body"><div class="sr-kpi-label">${label}</div><div class="sr-kpi-value">${value}</div>${extra}${sub ? `<div class="sr-kpi-sub">${sub}</div>` : ""}</div>
+        </div>`;
     const status = (r) => {
       const parts = [];
-      if (r.archived) parts.push('<span class="badge badge-muted">Archived</span>');
-      if (r.previous) parts.push('<span class="badge badge-muted">Previous attempt</span>');
-      if (r.grading === "in_progress") parts.push('<span class="badge badge-muted">In progress</span>');
-      else if (r.grading === "graded") parts.push(r.passed ? '<span class="badge badge-success">Pass</span>' : '<span class="badge badge-danger">Fail</span>');
-      else if (r.review === "declined") parts.push('<span class="badge badge-muted">Not graded</span>');
-      else parts.push(`<span class="badge badge-warning">${escapeHtml(r.gradingLabel)}</span>`);
-      if (r.review === "accepted") parts.push('<span class="badge badge-info">Accepted</span>');
-      else if (r.review === "declined") parts.push('<span class="badge badge-danger-outline">Declined</span>');
-      else if (r.review === "pending") parts.push('<span class="badge badge-muted">Pending review</span>');
-      return `<div class="status-stack">${parts.join("")}</div>`;
+      if (r.grading === "in_progress") parts.push(r.timeUp ? '<span class="pill pill-warn"><i class="fa-solid fa-hourglass-end"></i>Time up</span>' : '<span class="pill pill-muted"><i class="fa-solid fa-pen"></i>In progress</span>');
+      else if (r.grading === "graded") parts.push(r.passed ? '<span class="pill pill-good"><i class="fa-solid fa-circle-check"></i>Pass</span>' : '<span class="pill pill-bad"><i class="fa-solid fa-circle-xmark"></i>Fail</span>');
+      else if (r.review === "declined") parts.push('<span class="pill pill-muted">Not graded</span>');
+      else parts.push(`<span class="pill pill-warn"><i class="fa-solid fa-clipboard-list"></i>${escapeHtml(r.gradingLabel)}</span>`);
+      if (r.review === "accepted") parts.push('<span class="pill pill-info">Accepted</span>');
+      else if (r.review === "declined") parts.push('<span class="pill pill-bad-outline">Declined</span>');
+      else if (r.review === "pending") parts.push('<span class="pill pill-plain">Pending review</span>');
+      if (r.autoSubmitted) parts.push('<span class="pill pill-plain" title="Submitted automatically when the time ran out"><i class="fa-solid fa-stopwatch"></i>Auto-submitted</span>');
+      if (r.archived) parts.push('<span class="pill pill-plain">Archived</span>');
+      if (r.previous) parts.push('<span class="pill pill-plain">Previous attempt</span>');
+      return `<div class="sr-status">${parts.join("")}</div>`;
     };
+    const score = (r) => {
+      if (r.obtained === null) return '<span class="muted">—</span>';
+      const t = r.passed === true ? "is-good" : r.passed === false ? "is-low" : "";
+      return `<div class="sr-score ${t}"><div class="sr-score-top"><b>${fmt(r.percentage, "%")}</b><span>${escapeHtml(r.obtained)} / ${escapeHtml(r.total)}</span></div>${meter(r.percentage).replace(tone(r.percentage), t)}</div>`;
+    };
+    const chip = (icon, label, value, mono = false) => `<span class="sr-chip"><i class="fa-solid fa-${icon}" aria-hidden="true"></i><span class="sr-chip-label">${label}</span>${mono ? `<code>${value}</code>` : `<b>${value}</b>`}</span>`;
     box.innerHTML = `
-      <section class="card">
-        <div class="card-head">
-          <div>
-            ${back}
-            <h2 class="student-title">${escapeHtml(name)} ${student ? "" : '<span class="badge badge-warning">Not registered</span>'}</h2>
-            <p class="muted">Roll ${escapeHtml(who.rollNo)} · Grade ${escapeHtml(who.grade)} · Section ${escapeHtml(who.section)}${student ? ` · <span class="small">ID <code>${escapeHtml(student.id)}</code></span>` : ""}</p>
-            ${previous.length || typed.length ? `<p class="small muted">Earlier names: ${escapeHtml([...new Set([...previous, ...typed])].join(", "))}</p>` : ""}
+      <section class="card sr-profile">
+        <div class="sr-top">
+          <button type="button" class="btn btn-small btn-back" data-act="back" data-icon="arrow-left">All students</button>
+          <div class="sr-actions">${gradeAll}${tools}</div>
+        </div>
+        <div class="sr-identity">
+          <span class="sr-avatar" aria-hidden="true">${escapeHtml(initials)}</span>
+          <div class="sr-id-text">
+            <h2 class="student-title">${escapeHtml(name)}${student ? "" : ' <span class="badge badge-warning">Not registered</span>'}</h2>
+            <div class="sr-chips">
+              ${chip("user-graduate", "Roll", escapeHtml(who.rollNo))}
+              ${chip("star", "Grade", escapeHtml(who.grade))}
+              ${chip("location-dot", "Section", escapeHtml(who.section))}
+              ${student ? chip("id-card", "ID", escapeHtml(student.id), true) : ""}
+            </div>
+            ${previous.length || typed.length ? `<p class="small muted sr-names">Earlier names: ${escapeHtml([...new Set([...previous, ...typed])].join(", "))}</p>` : ""}
           </div>
-          <div class="detail-tools">${gradeAll}${tools}</div>
         </div>
-        <div class="summary-grid compact">
-          <div class="summary-card"><div class="summary-label">Quizzes attempted</div><div class="summary-value">${perf.attempted}</div></div>
-          <div class="summary-card"><div class="summary-label">Counted</div><div class="summary-value">${perf.counted}</div><div class="summary-sub">${perf.finalized} accepted, ${perf.pending} pending</div></div>
-          <div class="summary-card"><div class="summary-label">Marks</div><div class="summary-value">${perf.counted ? `${perf.obtained} / ${perf.possible}` : "—"}</div></div>
-          <div class="summary-card"><div class="summary-label">Overall</div><div class="summary-value">${fmt(perf.overallPercent, "%")}</div><div class="summary-sub">total marks ÷ possible</div></div>
-          <div class="summary-card"><div class="summary-label">Average</div><div class="summary-value">${fmt(perf.averagePercent, "%")}</div><div class="summary-sub">mean of quiz %</div></div>
-        </div>
-        <p class="small muted">Only the latest graded attempt of each quiz counts.</p>
       </section>
-      <section class="card table-card">
+
+      <section class="sr-kpis" aria-label="Performance">
+        ${kpi("file-lines", "blue", "Quizzes attempted", perf.attempted, inProgress ? `${inProgress} in progress` : (perf.attempted ? `${perf.counted} counted` : "None yet"))}
+        ${kpi("star", "amber", "Marks", perf.counted ? `${perf.obtained}<small> / ${perf.possible}</small>` : "—", perf.counted ? `${perf.finalized} accepted, ${perf.pending} pending review` : "No graded tests yet")}
+        ${kpi("bullseye", perf.overallPercent === null ? "slate" : perf.overallPercent >= pass ? "green" : "red", "Overall", fmt(perf.overallPercent, "%"), "Total marks ÷ possible", meter(perf.overallPercent))}
+        ${kpi("chart-line", "violet", "Average", fmt(perf.averagePercent, "%"), "Mean of quiz percentages", meter(perf.averagePercent))}
+        ${kpi("trophy", "teal", "Passed", perf.counted ? `${passedN}<small> / ${perf.counted}</small>` : "—", perf.counted ? `${failedN} failed · pass mark ${pass}%` : `Pass mark ${pass}%`)}
+      </section>
+
+      <section class="card table-card sr-history">
+        <div class="sr-history-head">
+          <div><h3>Quiz history</h3><p class="small muted">${pluralize(rows.length, "record")} · only the latest graded attempt of each quiz counts</p></div>
+          ${toGrade ? `<span class="pill pill-warn"><i class="fa-solid fa-clipboard-list"></i>${pluralize(toGrade, "test")} to grade</span>` : ""}
+        </div>
         ${rows.length ? `<div class="table-wrap">
-          <table class="data-table">
-            <thead><tr><th data-sort="quizTitle">Quiz</th><th data-sort="typedName">Name typed</th><th data-sort="grade">Class then</th><th data-sort="submittedMs">Submitted</th><th data-sort="statusOrder">Status</th><th data-sort="obtained" class="num">Marks</th><th data-sort="percentage" class="num">%</th><th data-sort="focusLossCount" class="num" title="Times the student left the quiz page">Left</th><th class="actions-col"></th></tr></thead>
-            <tbody>${this.detailRows.map((r) => `<tr class="${perf.countedIds.has(r.id) ? "" : "row-muted"}">
-              <td>${escapeHtml(r.quizTitle)}${!perf.countedIds.has(r.id) ? `<div class="small muted">Not counted: ${escapeHtml(perf.notCounted(r).toLowerCase())}</div>` : ""}</td>
-              <td>${escapeHtml(r.typedName)}</td>
-              <td class="small nowrap">${escapeHtml(r.grade)} ${escapeHtml(r.section)}</td>
-              <td class="small nowrap">${r.submittedMs ? escapeHtml(formatDateTime(r.attempt.submittedAt)) : "—"}</td>
+          <table class="data-table sr-table">
+            <thead><tr><th data-sort="quizTitle">Quiz</th><th data-sort="submittedMs">Submitted</th><th data-sort="statusOrder">Status</th><th data-sort="percentage" class="sr-score-col">Score</th><th data-sort="grade">Class then</th><th data-sort="focusLossCount" class="num" title="Times the student left the quiz page">Left page</th><th class="actions-col"></th></tr></thead>
+            <tbody>${pageRows.map((r) => `<tr class="${perf.countedIds.has(r.id) ? "" : "row-muted"}">
+              <td class="sr-quiz-cell"><div class="sr-quiz-title">${escapeHtml(r.quizTitle)}</div>
+                ${r.typedName && r.typedName !== name ? `<div class="small muted">Name typed: ${escapeHtml(r.typedName)}</div>` : ""}
+                ${!perf.countedIds.has(r.id) ? `<div class="small muted">Not counted: ${escapeHtml(perf.notCounted(r).toLowerCase())}</div>` : ""}</td>
+              <td class="small nowrap">${r.submittedMs ? escapeHtml(formatDateTime(r.attempt.submittedAt)) : (r.grading === "in_progress" ? `<span class="muted">${escapeHtml(r.answeredCount)}/${escapeHtml(r.questionCount)} answered</span>` : "—")}</td>
               <td>${status(r)}</td>
-              <td class="num">${r.obtained === null ? "—" : `${r.obtained} / ${r.total}`}</td>
-              <td class="num">${fmt(r.percentage, "%")}</td>
-              <td class="num">${r.focusLossCount}</td>
+              <td class="sr-score-col">${score(r)}</td>
+              <td class="small nowrap">Grade ${escapeHtml(r.grade)} · ${escapeHtml(r.section)}</td>
+              <td class="num">${r.focusLossCount ? `<span class="pill ${r.focusLossCount >= 3 ? "pill-warn" : "pill-plain"}">${r.focusLossCount}</span>` : '<span class="muted">0</span>'}</td>
               <td class="col-actions"><div class="row-buttons">
                 <button type="button" class="btn btn-small" data-sheet="${escapeHtml(r.id)}" data-icon="file-lines" title="Answer sheet">Answers</button>
                 ${this.detailMenu(r)}</div></td>
             </tr>`).join("")}</tbody>
           </table>
-        </div>` : '<p class="empty">No quiz records yet.</p>'}
+        </div>
+        ${pagerHtml({ page: this.detailPage, size: this.detailSize, total: this.detailRows.length, label: "records", sizeKey: "student-history" })}` : '<div class="sr-empty"><i class="fa-regular fa-folder-open" aria-hidden="true"></i><p>No quiz records yet.</p></div>'}
       </section>`;
     paintSortHeaders(box, this.detailSort);
   }
@@ -474,6 +706,7 @@ export class StudentRecordView {
     const id = escapeHtml(r.id);
     const item = (act, label) => `<button type="button" data-ract="${act}" data-id="${id}">${label}</button>`;
     const items = [`<a href="result.html?id=${encodeURIComponent(r.id)}${r.archived ? "&source=archive" : ""}">Open full record</a>`];
+    if (r.timeUp && !r.archived) items.push(item("submit-expired", "Submit (time is up)"));
     if (gradable(r)) items.push(item("grade", r.grading === "graded" ? "Recalculate marks" : "Grade now"));
     if (!r.archived && r.submitted) {
       if (r.review !== "accepted") items.push(item("accept", "Accept"));
@@ -556,6 +789,14 @@ export class StudentRecordView {
       const existing = new Map(list.filter((r) => r.result).map((r) => [r.id, r.result]));
       const { graded, skipped } = await gradeAttempts(list.map((r) => r.attempt), existing, teacher.settings.passPercent);
       appNotice(`Graded ${pluralize(graded, "test")}.${skipped.length ? ` ${skipped.length} could not be graded because the quiz has no answer key.` : ""}`, skipped.length ? "warning" : "success");
+    } else if (act === "submit-expired") {
+      const list = rows.filter((r) => r.timeUp && !r.archived);
+      if (!list.length) return;
+      const ok = await confirmDialog({ title: "Submit this quiz? The time is up.", text: "The answers saved before the time ran out are submitted as they are.", okText: "Submit" });
+      if (!ok) return;
+      await submitExpiredAttempts(list);
+      logActivity("attempts_time_up", `Submitted ${pluralize(list.length, "timed quiz", "timed quizzes")} after the time ran out`, list.map((r) => r.id).join(",").slice(0, 200));
+      appNotice("Submitted. You can grade it now.", "success");
     } else {
       const value = { accept: "accepted", decline: "declined", pending: "pending" }[act];
       const list = rows.filter((r) => r.submitted && !r.archived);
@@ -587,6 +828,7 @@ export class StudentRecordView {
     if (th) {
       if (this.current) {
         this.detailSort = nextSort(this.detailSort, th.dataset.sort, DETAIL_DESC_FIRST);
+        this.detailPage = 0;
         this.renderDetail(this.detailStudent, this.detailWho, this.detailAll);
       } else {
         this.sort = nextSort(this.sort, th.dataset.sort, GROUP_DESC_FIRST);
@@ -596,8 +838,23 @@ export class StudentRecordView {
       return;
     }
     const pageBtn = e.target.closest("[data-page]");
-    if (pageBtn && !this.current) {
-      if (!pageBtn.disabled) { this.listPage = Number(pageBtn.dataset.page); this.renderList(); this.$("list").scrollIntoView({ block: "start", behavior: "smooth" }); }
+    if (pageBtn) {
+      if (pageBtn.disabled) return;
+      if (this.current) {
+        this.detailPage = Number(pageBtn.dataset.page);
+        this.renderDetail(this.detailStudent, this.detailWho, this.detailAll);
+        this.$("detail").querySelector(".sr-history")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      } else {
+        this.listPage = Number(pageBtn.dataset.page);
+        this.renderList();
+        this.$("list").scrollIntoView({ block: "start", behavior: "smooth" });
+      }
+      return;
+    }
+    const bulkBtn = e.target.closest("[data-bulk]");
+    if (bulkBtn) {
+      bulkBtn.closest("details")?.removeAttribute("open");
+      if (!bulkBtn.disabled && isAdmin()) this.run(() => this.bulkAction(bulkBtn.dataset.bulk));
       return;
     }
     const sheet = e.target.closest("[data-sheet]");
@@ -627,7 +884,7 @@ export class StudentRecordView {
     if (!act) return;
     act.closest("details")?.removeAttribute("open");
     switch (act.dataset.act) {
-      case "back": this.current = null; this.$("detail").hidden = true; this.$("list").hidden = false; this.renderList(); if (/^#(history|student)/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); break;
+      case "back": this.current = null; this.$("detail").hidden = true; this.$("list").hidden = false; if (this.loadedKey) this.renderList(); else this.load(); /* opened from a link: the list was never loaded */ if (/^#(history|student)/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); break;
       case "migrate": this.run(() => this.migrate()); break;
       case "grade-student": this.run(() => this.recordAction("grade", this.detailAll.filter((r) => r.grading !== "graded"))); break;
       case "print-one": await this.print(this.detailRows, false, "Student record"); break;
@@ -785,12 +1042,11 @@ export class StudentRecordView {
     appNotice(`Exported ${pluralize(rows.length, "record")}.`, "success");
   }
 
-  exportStudents() {
-    const list = this.visibleGroups();
+  exportStudents(list = this.visibleGroups(), stem = "students") {
     const csv = toCsv([["Student ID", "Name", "Roll no.", "Grade", "Section", "Registered", "Quizzes attempted", "Counted", "Overall %", "Average %", "Earlier names"],
       ...list.map((g) => [g.student?.id || "", g.name, g.rollNo, g.grade, g.section, g.student ? "Yes" : "No", g.perf.attempted, g.perf.counted,
         g.perf.overallPercent ?? "", g.perf.averagePercent ?? "", [...new Set([...(g.student?.previousNames || []), ...g.names])].filter((n) => n !== g.name).join(" / ")])]);
-    downloadFile(`students_${new Date().toISOString().slice(0, 10)}.csv`, csv);
+    downloadFile(`${stem}_${new Date().toISOString().slice(0, 10)}.csv`, csv);
     appNotice(`Exported ${pluralize(list.length, "student")}.`, "success");
   }
 

@@ -16,7 +16,7 @@
 
 import { db, collection, query, where, getCountFromServer, getDocs, orderBy, limit } from "./firebase.js";
 import { splitScope } from "./records.js";
-import { session, isAdmin, classesLabel, ownsQuiz, myGrades, mySections } from "./roles.js";
+import { session, isAdmin, classesLabel, ownsQuiz, myGrades, mySections, sectionsText } from "./roles.js";
 import { teacher, appNotice, onTeacherChange } from "./teacherState.js";
 import { requestsState, pendingCount } from "./requests.js";
 import { allStudents, nameFor } from "./students.js";
@@ -274,7 +274,7 @@ export class OverviewView {
       ]
       : [
         { label: "Students", value: allStudents().length, sub: "in my classes", go: "history", icon: "user-graduate" },
-        { label: "Classes", value: classes.length, sub: classesLabel(session.classes), go: "history", icon: "people-group" },
+        { label: "Classes", value: classes.length, sub: classesLabel(session.classes, teacher.settings), go: "history", icon: "people-group" },
         { label: "My quizzes", value: quizzes.length, sub: `${open} open now`, go: "quizzes", icon: "file-lines" },
         { label: "Completed tests", value: stats.completed, sub: `${stats.graded} graded`, go: "results", icon: "square-check" }
       ];
@@ -340,7 +340,7 @@ export class OverviewView {
     const when = (q) => toDate(q.createdAt || q.importedAt)?.getTime() || 0;
     const list = [...teacher.quizzes.values()].filter((q) => ownsQuiz(q)).sort((a, b) => when(b) - when(a)).slice(0, 6);
     box.innerHTML = list.length ? `<ul class="ov-list">${list.map((q) => `<li>
-        <span class="ov-list-main"><b>${escapeHtml(q.title)}</b><span>${q.grade ? `Grade ${escapeHtml(q.grade)}` : "Any grade"}${q.sections?.length ? ` · ${q.sections.map(escapeHtml).join(", ")}` : ""}${isAdmin() ? ` · ${escapeHtml(ownerLabel(q))}` : ""}</span></span>
+        <span class="ov-list-main"><b>${escapeHtml(q.title)}</b><span>${q.grade ? `Grade ${escapeHtml(q.grade)}` : "Any grade"}${q.sections?.length ? ` · ${escapeHtml(sectionsText(teacher.settings, q.grade, q.sections))}` : ""}${isAdmin() ? ` · ${escapeHtml(ownerLabel(q))}` : ""}</span></span>
         <span class="ov-list-meta">${q.archived ? '<span class="badge badge-muted">Archived</span>' : q.active ? '<span class="badge badge-success">Open</span>' : '<span class="badge">Closed</span>'}<span class="small muted">${escapeHtml(formatDateTime(q.createdAt || q.importedAt))}</span></span>
       </li>`).join("")}</ul>` : '<p class="empty">No quizzes yet.</p>';
   }

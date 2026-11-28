@@ -2,12 +2,12 @@
 // final submission.
 
 import { ensureStudentAuth } from "./auth.js";
-import { loadQuiz, checkAttempt, createAttempt, saveProgress, submitAttempt } from "./submission.js";
+import { loadQuiz, checkAttempt, createAttempt, saveProgress, submitAttempt, startTimer, syncClock } from "./submission.js";
 import { buildRandomOrder } from "./randomizer.js";
 import { startAntiCheat, requestFullscreen, isFullscreen, fullscreenSupported } from "./antiCheat.js";
 import {
   makeAttemptId, escapeHtml, friendlyError, loadSettings, validateRoll, showNotice, hideNotice, storage, formatDateTime,
-  ACTIVE_KEY, PENDING_KEY, progressKey, toDate
+  ACTIVE_KEY, PENDING_KEY, progressKey, toDate, quizDuration, durationLabel, attemptDeadline, formatClock
 } from "./utilities.js";
 import { SHORT_ANSWER_MAX_LENGTH } from "./questionBank.js";
 import { lookupStudent } from "./students.js";
@@ -24,7 +24,8 @@ const els = Object.fromEntries([
   "questionImage", "answerArea", "prevBtn", "nextBtn", "reviewBtn", "navigatorGrid", "reviewScreen",
   "reviewSummary", "reviewWarning", "reviewGrid", "backToQuizBtn", "submitBtn", "doneCard", "doneText",
   "submitModal", "submitModalText", "submitError", "submitCancel", "submitConfirm", "leaveModal",
-  "leaveText", "leaveOk", "offlineBanner", "firstUnansweredBtn", "obscureCover", "questionLesson"
+  "leaveText", "leaveOk", "offlineBanner", "firstUnansweredBtn", "obscureCover", "questionLesson",
+  "quizTimer", "quizTimerText", "timerAnnounce", "timeUpModal", "timeUpText", "timeUpRetry"
 ].map((id) => [id, $(id)]));
 
 const state = {
@@ -44,11 +45,20 @@ const state = {
   submitting: false,
   dirty: false,         // changes not yet saved to Firestore
   saving: false,
-  lastRemoteSave: 0
+  lastRemoteSave: 0,
+  // Time limit (timed quizzes only). deadlineMs is on the SERVER's clock;
+  // offsetMs = server clock − device clock, measured when the timer starts
+  // and after every reload, so changing the device clock gives no extra time.
+  timeLimitMin: 0,
+  deadlineMs: null,
+  offsetMs: 0,
+  timeUp: false,        // the time ran out: answers are locked, the quiz is being submitted
+  warned: {}
 };
 
 let stopAntiCheat = null;
 let saveTimer = null;
+let tickTimer = null;
 
 // ------------------------------------------------------------------ helpers
 
@@ -94,6 +104,7 @@ function persistLocal() {
     optionOrder: state.optionOrder,
     quizId: state.quiz?.id,
     student: state.student,
+    timer: state.timeLimitMin ? { limit: state.timeLimitMin, deadlineMs: state.deadlineMs, offsetMs: state.offsetMs } : null,
     updatedAt: Date.now()
   });
 }
@@ -129,6 +140,8 @@ async function handleLockedAttempt() {
   try {
     const res = await checkAttempt(state.attemptId);
     if (res.state === "mine" && res.attempt.status === "submitted") { finishSubmitted(res.attempt); return; }
+    // Answers sent after the deadline are refused: submit what the server has.
+    if (res.state === "mine" && state.deadlineMs && serverNow() >= state.deadlineMs) { autoSubmit(); return; }
     if (res.state === "none") {
       stopMonitoring();
       clearLocal();
@@ -144,6 +157,7 @@ function clearLocal() {
 }
 
 function stopMonitoring() {
+  clearInterval(tickTimer);
   stopAntiCheat?.();
   stopAntiCheat = null;
   setObscured(false);
@@ -220,6 +234,11 @@ function tryOfflineResume(active) {
   state.student = local.student;
   applyQuiz(quiz);
   applyProgress({ order: local.order, optionOrder: local.optionOrder, answers: {}, currentIndex: 0 }, { ...local, updatedAt: Infinity });
+  if (local.timer?.limit) {
+    state.timeLimitMin = local.timer.limit;
+    state.deadlineMs = local.timer.deadlineMs || null;
+    state.offsetMs = local.timer.offsetMs || 0;
+  }
   state.dirty = true;
   showIntro(true);
   showNotice(els.notice, "You are offline. You can keep answering; your answers will be sent when the internet is back.", "warning");
@@ -257,7 +276,16 @@ async function resumeAttempt(attemptId) {
   }
   state.student = { name: attempt.studentName, roll: attempt.rollNo, grade: attempt.grade, section: attempt.section };
   applyProgress(attempt, storage.get(progressKey(attemptId)));
+  state.timeLimitMin = Number(attempt.timeLimitMin) || 0;
+  state.deadlineMs = attemptDeadline(attempt);
+  if (state.deadlineMs) {
+    // The timer is already running: measure the server clock again (a reload never resets it).
+    const local = storage.get(progressKey(attemptId));
+    state.offsetMs = local?.timer?.offsetMs || 0;
+    try { state.offsetMs = (await syncClock(attemptId)).offsetMs; } catch (err) { console.warn("Clock check failed; using the last known offset", err); }
+  }
   persistLocal();
+  if (state.deadlineMs && remainingMs() <= 0) { autoSubmit(); return; }
   showIntro(true);
 }
 
@@ -320,6 +348,8 @@ async function startNewAttempt(pending) {
   storage.set(quizCacheKey(quizId), quiz);
   state.attemptId = attemptId;
   state.student = student;
+  state.timeLimitMin = Number(attempt.timeLimitMin) || 0;
+  state.deadlineMs = null;
   applyProgress({ ...attempt, lastSavedAt: Date.now() }, null);
   persistLocal();
   showIntro(false);
@@ -333,9 +363,22 @@ function showIntro(resuming) {
   const s = state.student || {};
   els.introDetails.innerHTML = [
     ["Name", s.name], ["Roll number", s.roll], ["Grade", s.grade], ["Section", s.section],
-    ["Questions", state.order.length], ["Total marks", state.quiz.totalMarks ?? "—"]
+    ["Questions", state.order.length], ["Total marks", state.quiz.totalMarks ?? "—"],
+    ...(state.timeLimitMin ? [["Time limit", durationLabel(state.timeLimitMin, { long: true })]] : [])
   ].map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v ?? "")}</dd>`).join("");
-  els.beginBtn.textContent = resuming ? `Continue quiz (${answeredCount()} of ${state.order.length} answered)` : "Begin quiz";
+  const timedNote = document.getElementById("timedRule");
+  if (timedNote) timedNote.remove();
+  if (state.timeLimitMin) {
+    const li = document.createElement("li");
+    li.id = "timedRule";
+    li.className = "timed-rule";
+    li.innerHTML = state.deadlineMs
+      ? `<b>Your timer is running.</b> It kept running while you were away. When it reaches zero, your answers are submitted automatically.`
+      : `<b>This quiz has a time limit of ${escapeHtml(durationLabel(state.timeLimitMin, { long: true }))}.</b> The timer starts when you press Begin and keeps running if you leave or refresh the page. When it reaches zero, your answers are submitted automatically.`;
+    document.querySelector(".rules-list").prepend(li);
+  }
+  const left = state.deadlineMs ? ` · ${formatClock(remainingMs())} left` : "";
+  els.beginBtn.textContent = resuming ? `Continue quiz (${answeredCount()} of ${state.order.length} answered${left})` : (state.timeLimitMin ? "Begin quiz and start the timer" : "Begin quiz");
   showOnly("introCard");
 }
 
@@ -353,6 +396,33 @@ function setWatermark() {
 }
 
 async function begin() {
+  if (state.timeUp || state.submitted) return;
+  // Timed quiz: start the timer on the server first. The countdown begins
+  // here, at the real start, never on the intro page.
+  if (state.timeLimitMin && !state.deadlineMs) {
+    els.beginBtn.disabled = true;
+    const label = els.beginBtn.textContent;
+    els.beginBtn.textContent = "Starting the timer…";
+    try {
+      if (navigator.onLine === false) throw Object.assign(new Error("offline"), { code: "unavailable" });
+      const res = await startTimer(state.attemptId, state);
+      if (!res.startMs) throw new Error("The start time was not saved.");
+      state.deadlineMs = res.startMs + state.timeLimitMin * 60000;
+      state.offsetMs = res.offsetMs;
+      state.dirty = false;
+      state.lastRemoteSave = Date.now();
+      persistLocal();
+    } catch (err) {
+      console.error(err);
+      els.beginBtn.disabled = false;
+      els.beginBtn.textContent = label;
+      if (err?.code === "permission-denied") { await handleLockedAttempt(); return; }
+      showNotice(els.notice, `The timer could not be started, so the quiz has not begun. A timed quiz needs the internet to start. ${friendlyError(err)}`, "error");
+      return;
+    }
+    els.beginBtn.disabled = false;
+    hideNotice(els.notice);
+  }
   if (fullscreenSupported()) await requestFullscreen();
   state.started = true;
   document.body.classList.add("quiz-active");
@@ -377,6 +447,7 @@ async function begin() {
     onEvent: (type) => recordEvent(type)
   });
   saveTimer = setInterval(() => saveRemote(), SAVE_INTERVAL_MS);
+  if (state.deadlineMs) startCountdown();
   setWatermark();
   renderQuestion();
   showOnly("questionScreen");
@@ -447,7 +518,7 @@ function renderNavigator(container) {
 }
 
 function setAnswer(qid, value) {
-  if (state.submitted) return;
+  if (state.submitted || state.timeUp) return;
   const v = typeof value === "string" ? value.slice(0, SHORT_ANSWER_MAX_LENGTH) : value;
   if (String(v).trim() === "") delete state.answers[qid];
   else state.answers[qid] = v;
@@ -526,7 +597,7 @@ function openSubmitModal() {
 }
 
 async function doSubmit() {
-  if (state.submitting || state.submitted) return; // ignore double clicks
+  if (state.submitting || state.submitted || state.timeUp) return; // ignore double clicks (and the timer has its own submit)
   // Re-check right before sending: never submit with unanswered questions.
   const missing = unansweredIndexes();
   if (missing.length) {
@@ -585,9 +656,13 @@ function retryWhenOnline() {
 }
 
 function finishSubmitted(attempt) {
+  const timedOut = state.timeUp || !!attempt.autoSubmitted;
   state.submitted = true;
   state.submitting = false;
   stopMonitoring();
+  els.quizTimer.hidden = true;
+  els.timeUpModal.hidden = true;
+  document.body.classList.remove("timed");
   clearLocal();
   if (state.quiz?.id) storage.remove(quizCacheKey(state.quiz.id));
   els.submitModal.hidden = true;
@@ -595,8 +670,104 @@ function finishSubmitted(attempt) {
   els.fullscreenBanner.hidden = true;
   const when = formatDateTime(attempt.submittedAt);
   const name = state.student?.name || attempt.studentName || "";
-  els.doneText.textContent = `Thank you${name ? `, ${name}` : ""}. Your answers were received${when !== "—" ? ` at ${when}` : ""}.`;
+  els.doneText.textContent = timedOut
+    ? `Time is up${name ? `, ${name}` : ""}. Your answers were submitted automatically${when !== "—" ? ` at ${when}` : ""}.`
+    : `Thank you${name ? `, ${name}` : ""}. Your answers were received${when !== "—" ? ` at ${when}` : ""}.`;
   showOnly("doneCard");
+}
+
+// -------------------------------------------------------------------- timer
+// The countdown is worked out from timestamps on every tick (never by
+// counting ticks), so a sleeping tab, a slow device or a reload cannot add
+// time. The server refuses late answers and starts the clock itself, so
+// changing this code or the device clock gives no extra time either.
+
+function serverNow() { return Date.now() + state.offsetMs; }
+function remainingMs() { return state.deadlineMs ? state.deadlineMs - serverNow() : Infinity; }
+
+function startCountdown() {
+  clearInterval(tickTimer);
+  document.body.classList.add("timed");
+  els.quizTimer.hidden = false;
+  const left = remainingMs();
+  // Low-time warnings that already passed before a reload are not repeated.
+  [300000, 60000].forEach((t) => { if (left <= t) state.warned[t] = true; });
+  tickTimer = setInterval(tick, 500);
+  tick();
+}
+
+function tick() {
+  if (!state.deadlineMs || state.submitted) return;
+  const left = remainingMs();
+  const total = state.timeLimitMin * 60000;
+  els.quizTimerText.textContent = formatClock(left);
+  // Warn at 5 minutes (or at 20% of a short quiz), danger in the last minute.
+  const warnAt = Math.min(300000, Math.max(60000, total * 0.2));
+  els.quizTimer.classList.toggle("is-low", left <= warnAt && left > 60000);
+  els.quizTimer.classList.toggle("is-danger", left <= 60000);
+  const announce = (t, text) => {
+    if (left <= t && !state.warned[t]) { state.warned[t] = true; els.timerAnnounce.textContent = text; showNotice(els.notice, text, "warning"); }
+  };
+  announce(300000, "5 minutes left. Your answers will be submitted automatically when the time is up.");
+  announce(60000, "1 minute left.");
+  // Send the latest answers shortly before the end so none are lost.
+  if (left <= 60000 && !state.warned.save60) { state.warned.save60 = true; saveRemote(); }
+  if (left <= 15000 && !state.warned.save15) { state.warned.save15 = true; saveRemote(); }
+  if (left <= 0) autoSubmit();
+}
+
+let autoRetryTimer = null;
+let autoRetryDelay = 5000;
+
+/** The time is over: lock the answers and submit once (never twice). */
+async function autoSubmit() {
+  if (state.submitted) return;
+  if (state.autoSubmitting) return;
+  state.autoSubmitting = true;
+  state.timeUp = true;
+  clearTimeout(autoRetryTimer);
+  clearInterval(tickTimer);
+  els.quizTimerText.textContent = "0:00";
+  els.quizTimer.classList.add("is-danger");
+  els.submitModal.hidden = true;
+  els.leaveModal.hidden = true;
+  els.timeUpRetry.hidden = true;
+  els.timeUpText.textContent = "Submitting your answers…";
+  els.timeUpModal.hidden = false;
+  setObscured(false);
+  // A manual submit or a progress save may be on its way: let it finish first.
+  while (state.submitting || state.saving) await new Promise((r) => setTimeout(r, 200));
+  if (state.submitted) return;
+  persistLocal();
+  try {
+    let res;
+    try {
+      res = await submitAttempt(state.attemptId, state, { timeUp: true });
+    } catch (err) {
+      if (err?.code !== "permission-denied") throw err;
+      // Answers changed after the deadline (e.g. offline for a long time) are
+      // not accepted: submit with the answers the server already has.
+      res = await submitAttempt(state.attemptId, state, { timeUp: true, keepServerAnswers: true });
+    }
+    state.autoSubmitting = false;
+    finishSubmitted({ submittedAt: new Date(), autoSubmitted: true, ...(res?.attempt || {}) });
+  } catch (err) {
+    console.error(err);
+    state.autoSubmitting = false;
+    if (err?.code === "permission-denied") {
+      // Already submitted elsewhere, reset by the teacher, or the clock check
+      // is a little early: look at the attempt, then try again shortly.
+      const res = await checkAttempt(state.attemptId).catch(() => null);
+      if (res?.state === "mine" && res.attempt.status === "submitted") { finishSubmitted(res.attempt); return; }
+      if (res?.state === "none") { stopMonitoring(); clearLocal(); els.timeUpModal.hidden = true; showError("This quiz attempt was reset by your teacher. Please go back to the start page.", false); return; }
+    }
+    els.timeUpText.textContent = navigator.onLine === false
+      ? "You are offline. Your answers are safe on this device and will be submitted as soon as the internet is back. Keep this page open."
+      : `Your answers were not submitted yet. ${friendlyError(err)} Trying again…`;
+    els.timeUpRetry.hidden = false;
+    autoRetryTimer = setTimeout(autoSubmit, autoRetryDelay);
+    autoRetryDelay = Math.min(60000, autoRetryDelay * 2);
+  }
 }
 
 // ------------------------------------------------------------------- events
@@ -620,6 +791,7 @@ els.leaveOk.addEventListener("click", () => {
 });
 els.fullscreenBtn.addEventListener("click", () => requestFullscreen());
 els.errorRetry.addEventListener("click", init);
+els.timeUpRetry.addEventListener("click", () => { autoRetryDelay = 5000; autoSubmit(); });
 [els.navigatorGrid, els.reviewGrid].forEach((grid) => grid.addEventListener("click", (e) => {
   const b = e.target.closest(".nav-num");
   if (b) goTo(Number(b.dataset.index));
@@ -627,12 +799,14 @@ els.errorRetry.addEventListener("click", init);
 
 function updateOnline() {
   els.offlineBanner.hidden = navigator.onLine || !state.attemptId || state.submitted;
+  if (navigator.onLine && state.timeUp && !state.submitted) { autoRetryDelay = 5000; autoSubmit(); return; }
   if (navigator.onLine && state.started) saveRemote();
 }
 window.addEventListener("online", updateOnline);
 window.addEventListener("offline", updateOnline);
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") { persistLocal(); }
+  else if (state.deadlineMs && state.started) tick(); // catch up at once after the tab was in the background
 });
 
 init();
